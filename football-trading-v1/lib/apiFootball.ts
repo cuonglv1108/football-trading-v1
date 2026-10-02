@@ -217,6 +217,9 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
 
 export async function getApiFootballMatches(): Promise<TradingMatch[]> {
   const season = Number(process.env.API_FOOTBALL_SEASON ?? new Date().getFullYear());
+  const now = Date.now();
+  const horizonMs = Number(process.env.PREMATCH_SCAN_HOURS ?? 72) * 60 * 60 * 1000;
+  const horizon = now + horizonMs;
 
   const upcomingByLeague = await Promise.all(
     (Object.entries(LEAGUES) as Array<[League, number]>).map(async ([league, leagueId]) => {
@@ -226,6 +229,10 @@ export async function getApiFootballMatches(): Promise<TradingMatch[]> {
       ]);
 
       return fixtures
+        .filter((fixture: any) => {
+          const kickoff = new Date(fixture.fixture?.date ?? 0).getTime();
+          return kickoff >= now && kickoff <= horizon;
+        })
         .map((fixture: any) => {
           const odds = oddsMap.get(Number(fixture.fixture?.id));
           if (!odds) return null;
@@ -236,36 +243,7 @@ export async function getApiFootballMatches(): Promise<TradingMatch[]> {
     })
   );
 
-  let liveMatches: TradingMatch[] = [];
-  try {
-    const live = await fetchLiveFixtures();
-
-    for (const fixture of live) {
-      const league = (Object.entries(LEAGUES) as Array<[League, number]>).find(([, id]) => id === Number(fixture.league?.id))?.[0];
-      if (!league) continue;
-
-      const leagueId = LEAGUES[league];
-      const oddsMap = await fetchLeagueOdds(leagueId, season);
-      const odds = oddsMap.get(Number(fixture.fixture?.id));
-      if (!odds) continue;
-
-      const match = fixtureToBase(league, fixture, odds);
-      liveMatches.push({ ...match, ...evaluateV1(match) });
-    }
-  } catch {
-    // Upcoming scanner can still work when live endpoint is unavailable on the plan.
-  }
-
-  const merged = new Map<string, TradingMatch>();
-  for (const match of upcomingByLeague.flat()) merged.set(match.id, match);
-  for (const match of liveMatches) merged.set(match.id, match);
-
-  return Array.from(merged.values())
-    .filter(match => match.status !== 'FT')
-    .sort((a, b) => {
-      const aLive = a.status === 'LIVE' || a.status === 'HT' ? 0 : 1;
-      const bLive = b.status === 'LIVE' || b.status === 'HT' ? 0 : 1;
-      if (aLive !== bLive) return aLive - bLive;
-      return new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime();
-    });
+  return upcomingByLeague
+    .flat()
+    .sort((a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime());
 }
