@@ -4,7 +4,7 @@ import { TradingMatch } from '../lib/types';
 
 const stateLabel = {
   QUALIFIED: 'QUALIFIED',
-  WATCHING: 'WAIT HT',
+  WATCHING: 'WAIT',
   TRIGGER: 'V1 TRIGGER',
   CANCELLED: 'CANCELLED',
 };
@@ -13,10 +13,11 @@ type Props = {
   match: TradingMatch;
   starred?: boolean;
   onToggleStar?: (match: TradingMatch) => void;
+  onCheckpoint?: (match: TradingMatch) => void;
   compact?: boolean;
 };
 
-export default function MatchCard({ match, starred = false, onToggleStar, compact = false }: Props) {
+export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, compact = false }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
   const probability = match.winProbability ?? 0;
 
@@ -45,8 +46,11 @@ export default function MatchCard({ match, starred = false, onToggleStar, compac
         <strong>{match.away}</strong>
       </div>
 
-      {match.status === 'PRE' && match.kickoff && (
-        <div className="kickoff">{new Date(match.kickoff).toLocaleString()}</div>
+      {match.kickoff && (
+        <div className="kickoff">
+          {new Date(match.kickoff).toLocaleString()}
+          {match.checkedAt ? ` · checked ${new Date(match.checkedAt).toLocaleTimeString()}` : ''}
+        </div>
       )}
 
       <div className="metrics">
@@ -55,9 +59,16 @@ export default function MatchCard({ match, starred = false, onToggleStar, compac
         <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
       </div>
 
+      {(match.liveCornerLine || match.liveGoalLine) && (
+        <div className="liveLines">
+          <span>365 snapshot</span>
+          <b>C {match.liveCornerLine ?? '—'} · G {match.liveGoalLine ?? '—'}</b>
+        </div>
+      )}
+
       <div className="probabilityRow">
         <div>
-          <span>V1 win probability</span>
+          <span>V1 probability</span>
           <b>{probability}%</b>
         </div>
         <div className="probabilityTrack">
@@ -72,6 +83,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, compac
           <p>{match.reasons?.[0]}</p>
         </div>
       </div>
+
+      {onCheckpoint && match.status !== 'FT' && (
+        <button className="checkBtn" onClick={() => onCheckpoint(match)}>Check checkpoint</button>
+      )}
     </article>
   );
 }
