@@ -181,21 +181,6 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="feedNotice onDemand" role="status">
-        <strong>AUTO PRE-MATCH SCAN · NEXT 72 HOURS</strong>
-        <span>
-          MLS, Allsvenskan and Liga MX are scanned only for upcoming fixtures and pre-match V1 lines.
-          Live checking remains on-demand at your trading checkpoints.
-        </span>
-      </section>
-
-      {providerStatus === 'API_FOOTBALL_KEY_MISSING' && (
-        <section className="feedNotice">
-          <strong>PRE-MATCH DATA SOURCE NOT CONNECTED</strong>
-          <span>The scanner is ready, but it still needs a low-frequency fixture/odds source. No continuous live feed is required.</span>
-        </section>
-      )}
-
       {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
 
       <section className="summary">
