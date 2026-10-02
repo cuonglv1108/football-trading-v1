@@ -181,3 +181,111 @@ footer { display:flex; justify-content:space-between; gap:12px; color:var(--mute
   .mainTabs { grid-template-columns: 1fr 58px 1fr; }
   .notableBadge { display:none; }
 }
+
+
+.headerActions { display:flex; gap:8px; }
+.addBtn, .primaryBtn, .checkBtn {
+  border:1px solid var(--border);
+  background:var(--text);
+  color:var(--bg);
+  border-radius:12px;
+  padding:10px 13px;
+  cursor:pointer;
+  font-weight:700;
+}
+.onDemand { border-color: rgba(54,212,122,.18); }
+.toast {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  background: var(--panel2);
+  color: var(--text);
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.quickForm, .checkpointForm {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.formTitle { font-size:13px; font-weight:800; margin-bottom:12px; }
+.formGrid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:9px;
+}
+.formGrid input, .formGrid select {
+  width:100%;
+  border:1px solid var(--border);
+  background:var(--panel2);
+  color:var(--text);
+  border-radius:11px;
+  padding:11px 12px;
+  outline:none;
+}
+.formGrid input::placeholder { color:#6f7782; }
+.quickForm .primaryBtn, .checkpointForm .primaryBtn { width:100%; margin-top:10px; }
+.checkBtn {
+  width:100%;
+  margin-top:12px;
+  background:transparent;
+  color:var(--text);
+}
+.checkBtn:hover { background:rgba(255,255,255,.04); }
+.checkpointLabel {
+  color:var(--yellow);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.04em;
+  margin:0 0 6px 4px;
+}
+.liveLines {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:10px;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(240,199,94,.16);
+  background:rgba(240,199,94,.05);
+}
+.liveLines span { color:var(--muted); font-size:11px; }
+.liveLines b { font-size:12px; color:var(--yellow); }
+.modalBackdrop {
+  position:fixed;
+  inset:0;
+  z-index:50;
+  background:rgba(0,0,0,.72);
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding:18px;
+}
+.checkpointForm {
+  width:min(720px,100%);
+  max-height:88vh;
+  overflow:auto;
+  margin:0;
+  box-shadow:0 20px 80px rgba(0,0,0,.45);
+}
+.modalTop { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.closeBtn {
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  font-size:28px;
+  line-height:1;
+  cursor:pointer;
+}
+.checkFlags { display:grid; gap:8px; margin-top:12px; }
+.checkFlags label { font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+.formHint { margin:10px 0 0; color:var(--muted); font-size:11px; line-height:1.45; }
+
+@media (max-width:560px) {
+  .headerActions { gap:6px; }
+  .formGrid { grid-template-columns:1fr; }
+  .modalBackdrop { padding:8px; }
+}
