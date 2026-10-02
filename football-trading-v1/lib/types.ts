@@ -8,6 +8,7 @@ export interface TradingMatch {
   away: string;
   minute: number | null;
   status: 'PRE' | 'LIVE' | 'HT' | 'FT';
+  kickoff?: string | null;
   scoreHome: number;
   scoreAway: number;
   cornersHome: number;
@@ -21,4 +22,7 @@ export interface TradingMatch {
   ftGoalOverClear: boolean;
   state?: MatchState;
   reasons?: string[];
+  winProbability?: number;
+  notable?: boolean;
+  notableScore?: number;
 }
