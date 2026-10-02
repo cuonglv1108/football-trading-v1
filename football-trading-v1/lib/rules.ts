@@ -18,6 +18,8 @@ export function estimateV1Probability(match: TradingMatch): number {
   if (match.status === 'LIVE') {
     if (match.scoreHome === match.scoreAway) score += 3;
     if ((match.cornersHome + match.cornersAway) <= 4 && (match.minute ?? 0) >= 30) score += 4;
+    if (typeof match.liveCornerLine === 'number' && match.liveCornerLine >= 7.5) score += 2;
+    if (typeof match.liveGoalLine === 'number' && match.liveGoalLine >= 1.5) score += 2;
   }
 
   if (match.status === 'HT') {
@@ -26,6 +28,8 @@ export function estimateV1Probability(match: TradingMatch): number {
     else score -= 18;
 
     if (match.scoreHome === 0 && match.scoreAway === 0) score += 12;
+    if (typeof match.liveCornerLine === 'number' && match.liveCornerLine >= 7.5) score += 2;
+    if (typeof match.liveGoalLine === 'number' && match.liveGoalLine >= 1.5) score += 2;
     if (match.favouriteCoveringHandicap || match.favouriteLosing || match.ftGoalOverClear) score += 4;
   }
 
