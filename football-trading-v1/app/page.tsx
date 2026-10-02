@@ -1,137 +1,225 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
+import { evaluateV1 } from '../lib/rules';
 import { League, TradingMatch } from '../lib/types';
 
 const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX'];
-type FeedMode = 'DEMO' | 'NO_LIVE_PROVIDER' | 'LIVE';
 type View = 'SCANNER' | 'STARRED' | 'HISTORY';
 
+const WATCH_KEY = 'football-trading-v1-watch';
 const STAR_KEY = 'football-trading-v1-starred';
 const HISTORY_KEY = 'football-trading-v1-history';
 
+function readSaved(key: string): TradingMatch[] {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function nextCheckpoint(match: TradingMatch) {
+  if (!match.kickoff) return 'Manual check';
+  const kickoff = new Date(match.kickoff).getTime();
+  const now = Date.now();
+  const min = (now - kickoff) / 60000;
+
+  if (min < 38) return `40' check in ${Math.max(1, Math.ceil(38 - min))}m`;
+  if (min < 48) return "40' CHECK DUE";
+  if (min < 60) return 'HT CHECK DUE';
+  if (min < 105) return 'H2 checkpoint';
+  return 'Check result';
+}
+
 export default function Home() {
   const [matches, setMatches] = useState<TradingMatch[]>([]);
-  const [league, setLeague] = useState<'ALL' | League>('ALL');
-  const [view, setView] = useState<View>('SCANNER');
   const [starred, setStarred] = useState<TradingMatch[]>([]);
   const [history, setHistory] = useState<TradingMatch[]>([]);
-  const [updatedAt, setUpdatedAt] = useState('');
-  const [mode, setMode] = useState<FeedMode>('NO_LIVE_PROVIDER');
-  const [dataSource, setDataSource] = useState<string | null>(null);
-  const previousStates = useRef<Record<string, string>>({});
+  const [league, setLeague] = useState<'ALL' | League>('ALL');
+  const [view, setView] = useState<View>('STARRED');
+  const [showAdd, setShowAdd] = useState(false);
+  const [checkpoint, setCheckpoint] = useState<TradingMatch | null>(null);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
-    try {
-      setStarred(JSON.parse(localStorage.getItem(STAR_KEY) || '[]'));
-      setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'));
-    } catch {}
+    setMatches(readSaved(WATCH_KEY));
+    setStarred(readSaved(STAR_KEY));
+    setHistory(readSaved(HISTORY_KEY));
   }, []);
 
-  function persistStarred(next: TradingMatch[]) {
+  function saveWatch(next: TradingMatch[]) {
+    setMatches(next);
+    localStorage.setItem(WATCH_KEY, JSON.stringify(next));
+  }
+
+  function saveStarred(next: TradingMatch[]) {
     setStarred(next);
     localStorage.setItem(STAR_KEY, JSON.stringify(next));
   }
 
-  function persistHistory(next: TradingMatch[]) {
-    const deduped = Array.from(new Map(next.map(m => [`${m.id}-${m.state}-${m.status}`, m])).values()).slice(0, 100);
+  function saveHistory(next: TradingMatch[]) {
+    const deduped = Array.from(
+      new Map(next.map(m => [`${m.id}-${m.checkedAt ?? m.status}-${m.state}`, m])).values()
+    ).slice(0, 150);
     setHistory(deduped);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
   }
 
   function toggleStar(match: TradingMatch) {
     const exists = starred.some(m => m.id === match.id);
-    persistStarred(exists ? starred.filter(m => m.id !== match.id) : [{ ...match }, ...starred]);
+    saveStarred(exists ? starred.filter(m => m.id !== match.id) : [{ ...match }, ...starred]);
   }
 
-  async function refresh() {
-    const res = await fetch('/api/matches', { cache: 'no-store' });
-    const data = await res.json();
-    const incoming = (data.matches ?? []) as TradingMatch[];
+  function addMatch(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const kickoffLocal = String(fd.get('kickoff') || '');
 
-    setMatches(incoming);
-    setUpdatedAt(data.updatedAt ?? '');
-    setMode(data.mode ?? 'NO_LIVE_PROVIDER');
-    setDataSource(data.dataSource ?? null);
+    const base: TradingMatch = {
+      id: `manual-${Date.now()}`,
+      league: String(fd.get('league')) as League,
+      home: String(fd.get('home') || '').trim(),
+      away: String(fd.get('away') || '').trim(),
+      minute: null,
+      status: 'PRE',
+      kickoff: kickoffLocal ? new Date(kickoffLocal).toISOString() : null,
+      scoreHome: 0,
+      scoreAway: 0,
+      cornersHome: 0,
+      cornersAway: 0,
+      prematchCornerLine: Number(fd.get('cornerLine')),
+      prematchGoalLine: Number(fd.get('goalLine')),
+      favourite: String(fd.get('favourite')) as 'HOME' | 'AWAY',
+      handicap: Number(fd.get('handicap')),
+      favouriteCoveringHandicap: false,
+      favouriteLosing: false,
+      ftGoalOverClear: false,
+      checkedAt: new Date().toISOString(),
+    };
 
-    if (data.mode !== 'LIVE') return;
-
-    for (const m of incoming) {
-      const prev = previousStates.current[m.id];
-
-      if (m.notable && !starred.some(s => s.id === m.id)) {
-        persistStarred([{ ...m }, ...starred]);
-      }
-
-      if (prev && prev !== 'TRIGGER' && m.state === 'TRIGGER') {
-        persistHistory([{ ...m }, ...history]);
-
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(`V1 TRIGGER — ${m.home} vs ${m.away}`, {
-            body: `${m.status} | ${m.scoreHome}-${m.scoreAway} | Corners ${m.cornersHome}-${m.cornersAway} | V1 ${m.winProbability ?? 0}%`,
-          });
-        }
-      }
-
-      if (m.status === 'FT' && prev !== 'FT') {
-        persistHistory([{ ...m }, ...history]);
-      }
-
-      previousStates.current[m.id] = m.state ?? '';
+    if (!base.home || !base.away || Number.isNaN(base.prematchCornerLine) || Number.isNaN(base.prematchGoalLine)) {
+      setNotice('Please complete the match and pre-match lines.');
+      return;
     }
+
+    const evaluated = { ...base, ...evaluateV1(base) };
+    saveWatch([evaluated, ...matches]);
+
+    if (evaluated.state === 'QUALIFIED') {
+      saveStarred([evaluated, ...starred.filter(m => m.id !== evaluated.id)]);
+      setNotice('★ Added to watchlist — V1 pre-match filter passed.');
+    } else {
+      setNotice('Saved to Scanner, but it did not pass V1 pre-match filter.');
+    }
+
+    e.currentTarget.reset();
+    setShowAdd(false);
   }
 
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 1000);
-    return () => clearInterval(id);
-  }, [starred, history]);
+  function submitCheckpoint(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!checkpoint) return;
+    const fd = new FormData(e.currentTarget);
 
-  const sourceList = view === 'STARRED' ? starred : view === 'HISTORY' ? history : matches;
-  const filtered = useMemo(
-    () => league === 'ALL' ? sourceList : sourceList.filter(m => m.league === league),
-    [sourceList, league]
-  );
+    const updated: TradingMatch = {
+      ...checkpoint,
+      status: String(fd.get('status')) as TradingMatch['status'],
+      minute: Number(fd.get('minute')) || null,
+      scoreHome: Number(fd.get('scoreHome')) || 0,
+      scoreAway: Number(fd.get('scoreAway')) || 0,
+      cornersHome: Number(fd.get('cornersHome')) || 0,
+      cornersAway: Number(fd.get('cornersAway')) || 0,
+      liveCornerLine: fd.get('liveCornerLine') ? Number(fd.get('liveCornerLine')) : null,
+      liveGoalLine: fd.get('liveGoalLine') ? Number(fd.get('liveGoalLine')) : null,
+      favouriteCoveringHandicap: fd.get('favCovering') === 'on',
+      favouriteLosing: fd.get('favLosing') === 'on',
+      ftGoalOverClear: fd.get('goalClear') === 'on',
+      checkedAt: new Date().toISOString(),
+    };
 
-  const liveCount = matches.filter(m => m.status === 'LIVE' || m.status === 'HT').length;
-  const triggerCount = matches.filter(m => m.state === 'TRIGGER').length;
-  const notableCount = matches.filter(m => m.notable).length;
+    const evaluated = { ...updated, ...evaluateV1(updated) };
+    saveWatch(matches.map(m => m.id === evaluated.id ? evaluated : m));
+    saveStarred(starred.map(m => m.id === evaluated.id ? evaluated : m));
+    saveHistory([evaluated, ...history]);
+
+    if (evaluated.state === 'TRIGGER' && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification(`V1 TRIGGER — ${evaluated.home} vs ${evaluated.away}`, {
+        body: `${evaluated.status} | ${evaluated.scoreHome}-${evaluated.scoreAway} | Corners ${evaluated.cornersHome}-${evaluated.cornersAway} | V1 ${evaluated.winProbability}%`,
+      });
+    }
+
+    setNotice(`${evaluated.state} · V1 ${evaluated.winProbability}%`);
+    setCheckpoint(null);
+  }
 
   async function enableNotifications() {
     if ('Notification' in window) await Notification.requestPermission();
   }
+
+  const source = view === 'STARRED' ? starred : view === 'HISTORY' ? history : matches;
+  const filtered = useMemo(
+    () => league === 'ALL' ? source : source.filter(m => m.league === league),
+    [source, league]
+  );
+
+  const dueCount = starred.filter(m => /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
+  const triggerCount = starred.filter(m => m.state === 'TRIGGER').length;
 
   return (
     <main className="shell">
       <header>
         <div>
           <p className="eyebrow">FOOTBALL TRADING</p>
-          <h1>V1 Scanner</h1>
+          <h1>V1 Checkpoints</h1>
         </div>
-        <button className="notify" onClick={enableNotifications}>Enable alerts</button>
+        <div className="headerActions">
+          <button className="notify" onClick={enableNotifications}>Alerts</button>
+          <button className="addBtn" onClick={() => setShowAdd(v => !v)}>+ Match</button>
+        </div>
       </header>
 
-      {mode !== 'LIVE' && (
-        <section className="feedNotice" role="status">
-          <strong>{mode === 'DEMO' ? 'DEMO MODE' : 'LIVE DATA NOT CONNECTED'}</strong>
-          <span>
-            {mode === 'DEMO'
-              ? `Synthetic test data only${dataSource ? ` — ${dataSource}` : ''}. Not real fixtures.`
-              : 'No matches are shown until a verified live provider is connected.'}
-          </span>
-        </section>
+      <section className="feedNotice onDemand" role="status">
+        <strong>ON-DEMAND MODE</strong>
+        <span>No continuous API polling. Save pre-match V1 candidates, then check only at your trading checkpoints.</span>
+      </section>
+
+      {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
+
+      {showAdd && (
+        <form className="quickForm" onSubmit={addMatch}>
+          <div className="formTitle">Pre-match shortlist</div>
+          <div className="formGrid">
+            <select name="league" defaultValue="MLS">
+              <option>MLS</option>
+              <option>Allsvenskan</option>
+              <option>Liga MX</option>
+            </select>
+            <input name="kickoff" type="datetime-local" />
+            <input name="home" placeholder="Home team" required />
+            <input name="away" placeholder="Away team" required />
+            <input name="cornerLine" type="number" step="0.25" placeholder="Corner line e.g. 10.5" required />
+            <input name="goalLine" type="number" step="0.25" placeholder="Goal line e.g. 3.0" required />
+            <select name="favourite" defaultValue="HOME">
+              <option value="HOME">Home favourite</option>
+              <option value="AWAY">Away favourite</option>
+            </select>
+            <input name="handicap" type="number" step="0.25" defaultValue="-0.75" />
+          </div>
+          <button className="primaryBtn" type="submit">Run V1 + Save</button>
+        </form>
       )}
 
       <section className="summary">
-        <div><span>Live</span><strong>{liveCount}</strong></div>
-        <div><span>V1 picks</span><strong>{notableCount}</strong></div>
+        <div><span>★ Saved</span><strong>{starred.length}</strong></div>
+        <div><span>Checks due</span><strong>{dueCount}</strong></div>
         <div><span>Triggers</span><strong>{triggerCount}</strong></div>
       </section>
 
       <nav className="mainTabs">
+        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ Watchlist</button>
         <button className={view === 'SCANNER' ? 'active' : ''} onClick={() => setView('SCANNER')}>Scanner</button>
-        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★</button>
         <button className={view === 'HISTORY' ? 'active' : ''} onClick={() => setView('HISTORY')}>History</button>
       </nav>
 
@@ -145,39 +233,72 @@ export default function Home() {
 
       {view === 'HISTORY' && history.length > 0 && (
         <div className="historyBar">
-          <span>Saved automatically when V1 triggers or a match finishes.</span>
+          <span>Every checkpoint snapshot is saved locally.</span>
           <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear</button>
         </div>
       )}
 
       <section className="matchList">
-        {filtered.length > 0
-          ? filtered.map(match => (
-              <MatchCard
-                key={`${match.id}-${view}`}
-                match={match}
-                starred={starred.some(m => m.id === match.id)}
-                onToggleStar={view !== 'HISTORY' ? toggleStar : undefined}
-                compact={view === 'HISTORY'}
-              />
-            ))
-          : <div className="emptyState">
-              <strong>
-                {view === 'STARRED' ? 'No starred matches yet' : view === 'HISTORY' ? 'No saved history yet' : 'No verified matches'}
-              </strong>
-              <span>
-                {view === 'STARRED'
-                  ? 'Upcoming V1 picks will be added here automatically. You can also star a match manually.'
-                  : view === 'HISTORY'
-                    ? 'Triggered and finished matches will be saved here automatically.'
-                    : 'The scanner stays empty rather than showing guessed or synthetic fixtures.'}
-              </span>
-            </div>}
+        {filtered.length > 0 ? filtered.map(match => (
+          <div key={`${match.id}-${view}-${match.checkedAt}`}>
+            {view === 'STARRED' && <div className="checkpointLabel">{nextCheckpoint(match)}</div>}
+            <MatchCard
+              match={match}
+              starred={starred.some(m => m.id === match.id)}
+              onToggleStar={view !== 'HISTORY' ? toggleStar : undefined}
+              onCheckpoint={view !== 'HISTORY' ? setCheckpoint : undefined}
+              compact={view === 'HISTORY'}
+            />
+          </div>
+        )) : (
+          <div className="emptyState">
+            <strong>{view === 'STARRED' ? 'No matches in ★ yet' : view === 'HISTORY' ? 'No checkpoint history yet' : 'No scanned matches yet'}</strong>
+            <span>{view === 'STARRED' ? 'Add a pre-match candidate. V1-qualified matches are starred automatically.' : 'Nothing to show yet.'}</span>
+          </div>
+        )}
       </section>
 
+      {checkpoint && (
+        <div className="modalBackdrop" onClick={() => setCheckpoint(null)}>
+          <form className="checkpointForm" onSubmit={submitCheckpoint} onClick={e => e.stopPropagation()}>
+            <div className="modalTop">
+              <div>
+                <p className="eyebrow">CHECKPOINT</p>
+                <strong>{checkpoint.home} vs {checkpoint.away}</strong>
+              </div>
+              <button type="button" className="closeBtn" onClick={() => setCheckpoint(null)}>×</button>
+            </div>
+
+            <div className="formGrid">
+              <select name="status" defaultValue={checkpoint.status === 'PRE' ? 'HT' : checkpoint.status}>
+                <option value="LIVE">LIVE</option>
+                <option value="HT">HT</option>
+                <option value="FT">FT</option>
+              </select>
+              <input name="minute" type="number" placeholder="Minute" defaultValue={checkpoint.minute ?? 45} />
+              <input name="scoreHome" type="number" min="0" placeholder="Home goals" defaultValue={checkpoint.scoreHome} />
+              <input name="scoreAway" type="number" min="0" placeholder="Away goals" defaultValue={checkpoint.scoreAway} />
+              <input name="cornersHome" type="number" min="0" placeholder="Home corners" defaultValue={checkpoint.cornersHome} />
+              <input name="cornersAway" type="number" min="0" placeholder="Away corners" defaultValue={checkpoint.cornersAway} />
+              <input name="liveCornerLine" type="number" step="0.25" placeholder="365 live corner line" defaultValue={checkpoint.liveCornerLine ?? ''} />
+              <input name="liveGoalLine" type="number" step="0.25" placeholder="365 live goal line" defaultValue={checkpoint.liveGoalLine ?? ''} />
+            </div>
+
+            <div className="checkFlags">
+              <label><input type="checkbox" name="favCovering" /> Favourite covering handicap</label>
+              <label><input type="checkbox" name="favLosing" /> Favourite losing</label>
+              <label><input type="checkbox" name="goalClear" /> FT Over Goals already clear</label>
+            </div>
+
+            <button className="primaryBtn" type="submit">Evaluate V1 snapshot</button>
+            <p className="formHint">Enter the current Bet365 snapshot once. The app recalculates V1 and saves it to History.</p>
+          </form>
+        </div>
+      )}
+
       <footer>
-        <span>{mode === 'LIVE' ? 'Verified live feed' : mode === 'DEMO' ? 'Demo feed' : 'Waiting for live provider'}</span>
-        <span>{updatedAt ? `Checked ${new Date(updatedAt).toLocaleTimeString()}` : 'Connecting…'}</span>
+        <span>Checkpoint workflow · no continuous feed cost</span>
+        <span>Saved on this device</span>
       </footer>
     </main>
   );
