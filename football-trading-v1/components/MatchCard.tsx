@@ -2,13 +2,6 @@
 
 import { TradingMatch } from '../lib/types';
 
-const stateLabel = {
-  QUALIFIED: 'QUALIFIED',
-  WATCHING: 'WAIT',
-  TRIGGER: 'V1 TRIGGER',
-  CANCELLED: 'CANCELLED',
-};
-
 type Props = {
   match: TradingMatch;
   starred?: boolean;
@@ -68,7 +61,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
       <div className="probabilityRow">
         <div>
-          <span>V1 probability</span>
+          <span>V1</span>
           <b>{probability}%</b>
         </div>
         <div className="probabilityTrack">
@@ -76,16 +69,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       </div>
 
-      <div className="signal">
-        <div className="dot" />
-        <div>
-          <b>{stateLabel[match.state ?? 'WATCHING']}</b>
-          <p>{match.reasons?.[0]}</p>
-        </div>
-      </div>
 
       {onCheckpoint && match.status !== 'FT' && (
-        <button className="checkBtn" onClick={() => onCheckpoint(match)}>Check checkpoint</button>
+        <button className="checkBtn" onClick={() => onCheckpoint(match)}>Check</button>
       )}
     </article>
   );
