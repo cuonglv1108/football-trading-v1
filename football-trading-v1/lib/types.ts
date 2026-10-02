@@ -20,6 +20,9 @@ export interface TradingMatch {
   favouriteCoveringHandicap: boolean;
   favouriteLosing: boolean;
   ftGoalOverClear: boolean;
+  liveCornerLine?: number | null;
+  liveGoalLine?: number | null;
+  checkedAt?: string | null;
   state?: MatchState;
   reasons?: string[];
   winProbability?: number;
