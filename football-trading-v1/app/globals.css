@@ -85,3 +85,99 @@ footer { display:flex; justify-content:space-between; gap:12px; color:var(--mute
   border: 1px dashed rgba(255,255,255,.12);
   border-radius: 18px;
 }
+
+
+.mainTabs {
+  display: grid;
+  grid-template-columns: 1fr 72px 1fr;
+  gap: 8px;
+  margin: 2px 0 14px;
+}
+.mainTabs button {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.mainTabs button.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+.cardActions { display:flex; align-items:center; gap:8px; }
+.starBtn {
+  border: 0;
+  background: transparent;
+  color: #555d68;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.starBtn.active { color: var(--yellow); }
+.notableBadge {
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--yellow);
+  border: 1px solid rgba(240,199,94,.25);
+  background: rgba(240,199,94,.07);
+  padding: 4px 7px;
+  border-radius: 999px;
+}
+.kickoff {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+.probabilityRow {
+  margin-top: 12px;
+  background: var(--panel2);
+  border-radius: 12px;
+  padding: 10px;
+}
+.probabilityRow > div:first-child {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.probabilityRow span { color:var(--muted); font-size:11px; }
+.probabilityRow b { font-size:13px; }
+.probabilityTrack {
+  height: 4px;
+  margin-top: 8px;
+  background: rgba(255,255,255,.07);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.probabilityFill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 999px;
+}
+.historyBar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  color:var(--muted);
+  font-size:11px;
+  margin: 0 2px 12px;
+}
+.historyBar button {
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  text-decoration:underline;
+  cursor:pointer;
+}
+.card.compact { opacity: .92; }
+
+@media (max-width:560px) {
+  .mainTabs { grid-template-columns: 1fr 58px 1fr; }
+  .notableBadge { display:none; }
+}
