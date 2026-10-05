@@ -5,7 +5,7 @@ import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
 import { League, TradingMatch } from '../lib/types';
 
-const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX'];
+const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 type View = 'SCANNER' | 'STARRED' | 'HISTORY';
 
 const STAR_KEY = 'football-trading-v1-starred';
