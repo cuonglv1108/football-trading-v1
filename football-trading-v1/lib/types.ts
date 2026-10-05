@@ -1,4 +1,4 @@
-export type League = 'MLS' | 'Allsvenskan' | 'Liga MX';
+export type League = 'MLS' | 'Allsvenskan' | 'Liga MX' | 'Brazil Serie A';
 export type MatchState = 'QUALIFIED' | 'WATCHING' | 'TRIGGER' | 'CANCELLED';
 
 export interface TradingMatch {
