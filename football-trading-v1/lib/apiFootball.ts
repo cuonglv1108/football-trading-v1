@@ -8,6 +8,7 @@ const LEAGUES: Record<League, number> = {
   MLS: 253,
   Allsvenskan: 113,
   'Liga MX': 262,
+  'Brazil Serie A': 71,
 };
 
 type ApiResponse<T> = {
