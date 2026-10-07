@@ -9,9 +9,9 @@ export const runtime = 'nodejs';
 
 const ALLOWED_LEAGUES: League[] = ['MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 const SCAN_CACHE_MS = Number(process.env.GPT_SCAN_CACHE_MS ?? 6 * 60 * 60 * 1000);
-const DAILY_WEB_CALL_CAP = Number(process.env.GPT_DAILY_WEB_CALL_CAP ?? 18);
-const DAILY_PAID_SCAN_CAP = Number(process.env.GPT_DAILY_PAID_SCAN_CAP ?? 3);
-const MAX_WEB_CALLS_PER_SCAN = Number(process.env.GPT_MAX_WEB_CALLS_PER_SCAN ?? 6);
+const DAILY_WEB_CALL_CAP = Number(process.env.GPT_DAILY_WEB_CALL_CAP ?? 20);
+const DAILY_PAID_SCAN_CAP = Number(process.env.GPT_DAILY_PAID_SCAN_CAP ?? 2);
+const MAX_WEB_CALLS_PER_SCAN = Number(process.env.GPT_MAX_WEB_CALLS_PER_SCAN ?? 10);
 const STATE_FILE = process.env.GPT_SCAN_STATE_FILE || '/data/v1-scan-state.json';
 
 type ScanPayload = {
@@ -30,11 +30,14 @@ type ScanPayload = {
   dailyWebCalls?: number;
   dailyPaidScans?: number;
   budgetMessage?: string;
+  inputTokensThisScan?: number;
+  outputTokensThisScan?: number;
+  estimatedCostUsd?: number;
 };
 
 type PersistedState = {
   cache?: { payload: ScanPayload; expiresAt: number };
-  daily: { day: string; webCalls: number; paidScans: number };
+  daily: { day: string; webCalls: number; paidScans: number; estimatedCostUsd?: number };
 };
 
 declare global {
@@ -52,7 +55,7 @@ function torontoDay() {
 }
 
 function freshState(): PersistedState {
-  return { daily: { day: torontoDay(), webCalls: 0, paidScans: 0 } };
+  return { daily: { day: torontoDay(), webCalls: 0, paidScans: 0, estimatedCostUsd: 0 } };
 }
 
 async function readState(): Promise<PersistedState> {
@@ -60,7 +63,7 @@ async function readState(): Promise<PersistedState> {
     const raw = await fs.readFile(STATE_FILE, 'utf8');
     const state = JSON.parse(raw) as PersistedState;
     if (!state.daily || state.daily.day !== torontoDay()) {
-      state.daily = { day: torontoDay(), webCalls: 0, paidScans: 0 };
+      state.daily = { day: torontoDay(), webCalls: 0, paidScans: 0, estimatedCostUsd: 0 };
     }
     return state;
   } catch {
@@ -277,7 +280,8 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
         tools: [{ type: 'web_search' }],
         tool_choice: 'required',
         max_tool_calls: maxToolCalls,
-        max_output_tokens: 4500,
+        max_output_tokens: 6500,
+        text: { format: { type: 'json_object' } },
         input: prompt,
       }),
       cache: 'no-store',
@@ -287,7 +291,28 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
     if (!res.ok) throw new Error(raw?.error?.message || `OpenAI HTTP ${res.status}`);
 
     const webCallsThisScan = countWebCalls(raw);
-    const parsed = parseJson(extractText(raw));
+    const inputTokensThisScan = Number(raw?.usage?.input_tokens ?? 0);
+    const outputTokensThisScan = Number(raw?.usage?.output_tokens ?? 0);
+    // Current GPT-6 Luna Standard rates: $0.10/M input, $0.50/M output.
+    // Web search is $0.01/call. This is an estimate shown for budget control.
+    const estimatedCostUsd =
+      webCallsThisScan * 0.01 +
+      inputTokensThisScan * 0.10 / 1_000_000 +
+      outputTokensThisScan * 0.50 / 1_000_000;
+
+    // Count spend BEFORE parsing so a malformed/incomplete model response can never escape the daily guard.
+    state.daily.webCalls += webCallsThisScan;
+    state.daily.paidScans += 1;
+    state.daily.estimatedCostUsd = Number(((state.daily.estimatedCostUsd ?? 0) + estimatedCostUsd).toFixed(6));
+    await writeState(state);
+
+    const responseText = extractText(raw);
+    if (!responseText.trim()) {
+      const incompleteReason = raw?.incomplete_details?.reason || raw?.status || 'no final JSON';
+      throw new Error(`Scanner incomplete after ${webCallsThisScan} web calls (${incompleteReason})`);
+    }
+
+    const parsed = parseJson(responseText);
     const rows = Array.isArray(parsed?.matches) ? parsed.matches : [];
     const audit = Array.isArray(parsed?.audit) ? parsed.audit : [];
 
@@ -337,9 +362,6 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
     const scanStatus: 'COMPLETE' | 'PARTIAL' =
       parsed?.scanStatus === 'COMPLETE' && unverifiedCount === 0 ? 'COMPLETE' : 'PARTIAL';
 
-    state.daily.webCalls += webCallsThisScan;
-    state.daily.paidScans += 1;
-
     const payload: ScanPayload = {
       updatedAt: new Date().toISOString(),
       mode: 'GPT_WEB_SCAN',
@@ -354,7 +376,10 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
       webCallsThisScan,
       dailyWebCalls: state.daily.webCalls,
       dailyPaidScans: state.daily.paidScans,
-      budgetMessage: `Daily guard: ${state.daily.webCalls}/${DAILY_WEB_CALL_CAP} web calls, ${state.daily.paidScans}/${DAILY_PAID_SCAN_CAP} paid scans.`,
+      inputTokensThisScan,
+      outputTokensThisScan,
+      estimatedCostUsd: Number(estimatedCostUsd.toFixed(6)),
+      budgetMessage: `Daily guard: ${state.daily.webCalls}/${DAILY_WEB_CALL_CAP} web calls, ${state.daily.paidScans}/${DAILY_PAID_SCAN_CAP} paid scans · est. ${(state.daily.estimatedCostUsd ?? 0).toFixed(3)} today.`,
     };
 
     state.cache = { payload, expiresAt: Date.now() + SCAN_CACHE_MS };
@@ -380,8 +405,10 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
       providerStatus: 'ERROR',
       cacheStatus: state.cache?.payload ? 'STALE' : 'HIT',
       providerError: error instanceof Error ? error.message : 'Unknown scanner error',
+      scanStatus: 'PARTIAL',
       dailyWebCalls: state.daily.webCalls,
       dailyPaidScans: state.daily.paidScans,
+      budgetMessage: `Daily guard: ${state.daily.webCalls}/${DAILY_WEB_CALL_CAP} web calls, ${state.daily.paidScans}/${DAILY_PAID_SCAN_CAP} paid scans · est. ${(state.daily.estimatedCostUsd ?? 0).toFixed(3)} today.`,
     }, { status: 200, headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } finally {
     globalThis.__v1ScanInFlight = undefined;
