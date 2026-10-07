@@ -120,8 +120,22 @@ export default function Home() {
   async function scanUpcoming() {
     setLoading(true);
     try {
-      const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
-      const data = await res.json();
+      let data: any;
+
+      try {
+        const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
+        const text = await res.text();
+        data = JSON.parse(text);
+      } catch {
+        // A mobile browser/network can drop a long response even after the server
+        // finished the paid scan. Recover from the shared persistent cache first,
+        // so retrying never starts a second paid scan.
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        const recovery = await fetch('/api/gpt-scan', { cache: 'no-store' });
+        const recoveryText = await recovery.text();
+        data = JSON.parse(recoveryText);
+      }
+
       const incoming = (data.matches ?? []) as TradingMatch[];
 
       setMatches(incoming);
