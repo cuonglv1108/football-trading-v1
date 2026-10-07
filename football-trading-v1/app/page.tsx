@@ -37,7 +37,7 @@ export default function Home() {
   const [starred, setStarred] = useState<TradingMatch[]>([]);
   const [history, setHistory] = useState<TradingMatch[]>([]);
   const [league, setLeague] = useState<'ALL' | League>('ALL');
-  const [view, setView] = useState<View>('STARRED');
+  const [view, setView] = useState<View>('SCANNER');
   const [checkpoint, setCheckpoint] = useState<TradingMatch | null>(null);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,7 +80,7 @@ export default function Home() {
   async function scanUpcoming() {
     setLoading(true);
     try {
-      const res = await fetch('/api/matches', { cache: 'no-store' });
+      const res = await fetch('/api/gpt-scan', { cache: 'no-store' });
       const data = await res.json();
       const incoming = (data.matches ?? []) as TradingMatch[];
 
@@ -101,7 +101,12 @@ export default function Home() {
           return next;
         });
 
-        setNotice(`Scanned next 72h · ${incoming.filter(m => m.state === 'QUALIFIED').length} V1 matches added to ★`);
+        setNotice(`GPT scanned next 72h · ${incoming.length} qualified V1 matches`);
+      } else {
+        const status = data.providerStatus ?? data.mode ?? '';
+        setNotice(status === 'OPENAI_API_KEY_MISSING'
+          ? 'GPT scanner is ready, but OPENAI_API_KEY is not connected yet.'
+          : 'Scan complete · no verified V1 matches found.');
       }
     } catch {
       setProviderStatus('ERROR');
