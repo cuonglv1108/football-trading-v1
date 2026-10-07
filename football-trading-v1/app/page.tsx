@@ -69,7 +69,9 @@ export default function Home() {
       setScanCoverage(data.fixturesFound != null
         ? `${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
         : '');
-      setBudgetStatus(data.budgetMessage ?? '');
+      setBudgetStatus(data.budgetMessage ?? (data.estimatedCostUsd != null
+        ? `This scan est. ${Number(data.estimatedCostUsd).toFixed(3)}`
+        : ''));
 
       if (incoming.length) {
         setStarred(prev => {
@@ -162,9 +164,11 @@ export default function Home() {
           ? 'GPT scanner is ready, but OPENAI_API_KEY is not connected yet.'
           : status === 'DAILY_BUDGET_REACHED'
             ? 'Daily scan budget reached. No paid scan was started.'
-            : data.scanStatus === 'PARTIAL'
-              ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures verified · no qualifying match verified yet.`
-              : 'Scan complete · no verified V1 matches found.');
+            : status === 'ERROR'
+              ? `Scan failed safely · ${data.providerError ?? 'scanner error'}`
+              : data.scanStatus === 'PARTIAL'
+                ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures verified · no qualifying match verified yet.`
+                : 'Scan complete · no verified V1 matches found.');
       }
     } catch {
       setProviderStatus('ERROR');
