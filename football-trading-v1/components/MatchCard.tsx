@@ -8,10 +8,12 @@ type Props = {
   starred?: boolean;
   onToggleStar?: (match: TradingMatch) => void;
   onCheckpoint?: (match: TradingMatch) => void;
+  onHtCheck?: (match: TradingMatch) => void;
+  htLoading?: boolean;
   compact?: boolean;
 };
 
-export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, compact = false }: Props) {
+export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, compact = false }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
   const probability = match.winProbability ?? 0;
   const [expanded, setExpanded] = useState(compact);
@@ -89,8 +91,31 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           </div>
 
+          {match.htAction && (
+            <div className="htAdvice">
+              <div className="htAdviceTop">
+                <span>HT DECISION</span>
+                <b>{match.htAction.replace(/_/g, ' ')}</b>
+              </div>
+              {match.htAdvice && <p>{match.htAdvice}</p>}
+              {match.htConfidence && <small>Confidence: {match.htConfidence}</small>}
+              {(match.htMissingInputs ?? []).length > 0 && (
+                <small>Missing: {(match.htMissingInputs ?? []).join(', ')}</small>
+              )}
+              {(match.htSourceUrls ?? []).slice(0,2).map((url, i) => (
+                <a key={url+i} href={url} target="_blank" rel="noreferrer">HT source {i + 1}</a>
+              ))}
+            </div>
+          )}
+
+          {onHtCheck && match.status !== 'FT' && (
+            <button className="htCheckBtn" onClick={() => onHtCheck(match)} disabled={htLoading}>
+              {htLoading ? 'GPT checking HT…' : 'HT Check'}
+            </button>
+          )}
+
           {onCheckpoint && match.status !== 'FT' && (
-            <button className="checkBtn" onClick={() => onCheckpoint(match)}>Check</button>
+            <button className="checkBtn" onClick={() => onCheckpoint(match)}>Manual Check</button>
           )}
         </>
       )}
