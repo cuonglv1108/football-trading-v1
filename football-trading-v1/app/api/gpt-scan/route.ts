@@ -55,10 +55,24 @@ function parseJson(text: string) {
   return JSON.parse(clean.slice(start, end + 1));
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const cached = cachedPayload();
   if (cached) {
     return NextResponse.json(cached, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  }
+
+  const url = new URL(request.url);
+  const shouldScan = url.searchParams.get('scan') === '1';
+
+  if (!shouldScan) {
+    return NextResponse.json({
+      updatedAt: '',
+      mode: 'GPT_WEB_SCAN',
+      dataSource: 'OpenAI web search',
+      providerStatus: 'CACHE_EMPTY',
+      matches: [],
+      cacheStatus: 'HIT',
+    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 
   if (globalThis.__v1ScanInFlight) {
