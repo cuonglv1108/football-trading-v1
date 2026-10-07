@@ -43,6 +43,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState('');
   const [updatedAt, setUpdatedAt] = useState('');
+  const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     setStarred(readSaved(STAR_KEY));
@@ -113,6 +114,63 @@ export default function Home() {
       setNotice('Pre-match scan failed. Try again.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runHtCheck(match: TradingMatch) {
+    setHtLoadingId(match.id);
+    setNotice(`GPT is checking HT · ${match.home} vs ${match.away}`);
+    try {
+      const res = await fetch('/api/ht-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(match),
+      });
+      const data = await res.json();
+
+      if (data.providerStatus === 'OPENAI_API_KEY_MISSING') {
+        setNotice('HT Check is ready, but OPENAI_API_KEY is not connected yet.');
+        return;
+      }
+      if (data.providerStatus !== 'CONNECTED') {
+        setNotice(data.advice || 'HT Check failed. Try again.');
+        return;
+      }
+
+      const updated: TradingMatch = {
+        ...match,
+        status: 'HT',
+        scoreHome: data.scoreHome ?? match.scoreHome,
+        scoreAway: data.scoreAway ?? match.scoreAway,
+        cornersHome: data.cornersHome ?? match.cornersHome,
+        cornersAway: data.cornersAway ?? match.cornersAway,
+        liveGoalLine: data.liveGoalLine ?? null,
+        liveCornerLine: data.liveCornerLine ?? null,
+        favouriteCoveringHandicap: data.favouriteCoveringHandicap ?? false,
+        favouriteLosing: data.favouriteLosing ?? false,
+        ftGoalOverClear: data.ftGoalOverClear ?? false,
+        htAction: data.action,
+        htAdvice: data.reason,
+        htConfidence: data.confidence,
+        htMissingInputs: Array.isArray(data.missingInputs) ? data.missingInputs : [],
+        htSourceSummary: data.sourceSummary,
+        htSourceUrls: Array.isArray(data.sourceUrls) ? data.sourceUrls : [],
+        htCheckedAt: data.checkedAt ?? new Date().toISOString(),
+        checkedAt: data.checkedAt ?? new Date().toISOString(),
+      };
+
+      setMatches(prev => prev.map(m => m.id === updated.id ? updated : m));
+      setStarred(prev => {
+        const next = prev.map(m => m.id === updated.id ? updated : m);
+        localStorage.setItem(STAR_KEY, JSON.stringify(next));
+        return next;
+      });
+      saveHistory([updated, ...history]);
+      setNotice(`HT Check · ${String(data.action).replace(/_/g, ' ')}`);
+    } catch {
+      setNotice('HT Check failed. Try again.');
+    } finally {
+      setHtLoadingId(null);
     }
   }
 
@@ -224,6 +282,8 @@ export default function Home() {
               starred={starred.some(m => m.id === match.id)}
               onToggleStar={view !== 'HISTORY' ? toggleStar : undefined}
               onCheckpoint={view !== 'HISTORY' ? setCheckpoint : undefined}
+              onHtCheck={view === 'STARRED' ? runHtCheck : undefined}
+              htLoading={htLoadingId === match.id}
               compact={view === 'HISTORY'}
             />
           </div>
