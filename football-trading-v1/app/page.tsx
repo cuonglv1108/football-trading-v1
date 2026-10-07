@@ -44,6 +44,9 @@ export default function Home() {
   const [providerStatus, setProviderStatus] = useState('');
   const [updatedAt, setUpdatedAt] = useState('');
   const [nextRefreshAt, setNextRefreshAt] = useState('');
+  const [scanStatus, setScanStatus] = useState('');
+  const [scanCoverage, setScanCoverage] = useState('');
+  const [budgetStatus, setBudgetStatus] = useState('');
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,7 +57,7 @@ export default function Home() {
 
   async function loadCachedScan() {
     try {
-      const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
+      const res = await fetch('/api/gpt-scan', { cache: 'no-store' });
       const data = await res.json();
       const incoming = (data.matches ?? []) as TradingMatch[];
 
@@ -62,6 +65,11 @@ export default function Home() {
       setProviderStatus(data.providerStatus ?? data.mode ?? '');
       setUpdatedAt(data.updatedAt ?? '');
       setNextRefreshAt(data.nextRefreshAt ?? '');
+      setScanStatus(data.scanStatus ?? '');
+      setScanCoverage(data.fixturesFound != null
+        ? `${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
+        : '');
+      setBudgetStatus(data.budgetMessage ?? '');
 
       if (incoming.length) {
         setStarred(prev => {
@@ -110,7 +118,7 @@ export default function Home() {
   async function scanUpcoming() {
     setLoading(true);
     try {
-      const res = await fetch('/api/gpt-scan', { cache: 'no-store' });
+      const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
       const data = await res.json();
       const incoming = (data.matches ?? []) as TradingMatch[];
 
@@ -118,6 +126,11 @@ export default function Home() {
       setProviderStatus(data.providerStatus ?? data.mode ?? '');
       setUpdatedAt(data.updatedAt ?? '');
       setNextRefreshAt(data.nextRefreshAt ?? '');
+      setScanStatus(data.scanStatus ?? '');
+      setScanCoverage(data.fixturesFound != null
+        ? `${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
+        : '');
+      setBudgetStatus(data.budgetMessage ?? '');
 
       if (incoming.length) {
         setStarred(prev => {
@@ -132,14 +145,26 @@ export default function Home() {
           return next;
         });
 
-        setNotice(data.cacheStatus === 'HIT'
-          ? `Shared result · ${incoming.length} qualified V1 matches · no new GPT cost`
-          : `New GPT scan · ${incoming.length} qualified V1 matches`);
+        if (data.providerStatus === 'DAILY_BUDGET_REACHED') {
+          setNotice(`Daily budget reached · showing saved result · ${incoming.length} V1 matches`);
+        } else if (data.cacheStatus === 'HIT') {
+          setNotice(`Shared result · ${incoming.length} qualified V1 matches · no new GPT cost`);
+        } else {
+          const coverage = data.fixturesFound != null
+            ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
+            : '';
+          const partial = data.scanStatus === 'PARTIAL' ? ' · PARTIAL' : ' · COMPLETE';
+          setNotice(`New GPT scan${partial}${coverage} · ${incoming.length} qualified`);
+        }
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
         setNotice(status === 'OPENAI_API_KEY_MISSING'
           ? 'GPT scanner is ready, but OPENAI_API_KEY is not connected yet.'
-          : 'Scan complete · no verified V1 matches found.');
+          : status === 'DAILY_BUDGET_REACHED'
+            ? 'Daily scan budget reached. No paid scan was started.'
+            : data.scanStatus === 'PARTIAL'
+              ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures verified · no qualifying match verified yet.`
+              : 'Scan complete · no verified V1 matches found.');
       }
     } catch {
       setProviderStatus('ERROR');
@@ -403,6 +428,8 @@ export default function Home() {
         <span>Pre-match auto scan · live checks on demand</span>
         <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for scan'}</span>
         {nextRefreshAt && <span>{`Free refresh after ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
+        {scanStatus && <span>{`Scan ${scanStatus}${scanCoverage ? ` · ${scanCoverage}` : ''}`}</span>}
+        {budgetStatus && <span>{budgetStatus}</span>}
       </footer>
     </main>
   );
