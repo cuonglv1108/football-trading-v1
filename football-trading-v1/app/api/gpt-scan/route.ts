@@ -281,7 +281,6 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
         tool_choice: 'required',
         max_tool_calls: maxToolCalls,
         max_output_tokens: 6500,
-        text: { format: { type: 'json_object' } },
         input: prompt,
       }),
       cache: 'no-store',
@@ -312,7 +311,35 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
       throw new Error(`Scanner incomplete after ${webCallsThisScan} web calls (${incompleteReason})`);
     }
 
-    const parsed = parseJson(responseText);
+    let parsed: any;
+    try {
+      parsed = parseJson(responseText);
+    } catch {
+      const repairRes = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_SCAN_MODEL || 'gpt-6-luna',
+          max_output_tokens: 5000,
+          input: `Convert the following scanner output into valid JSON only. Do not add facts, do not search, do not infer missing data. Preserve all values exactly when present. Output exactly one JSON object matching the requested scanner schema.\n\n${responseText}`,
+        }),
+        cache: 'no-store',
+      });
+
+      const repairRaw = await repairRes.json();
+      if (!repairRes.ok) throw new Error(repairRaw?.error?.message || `OpenAI repair HTTP ${repairRes.status}`);
+
+      const repairInput = Number(repairRaw?.usage?.input_tokens ?? 0);
+      const repairOutput = Number(repairRaw?.usage?.output_tokens ?? 0);
+      const repairCost = repairInput * 0.10 / 1_000_000 + repairOutput * 0.50 / 1_000_000;
+      state.daily.estimatedCostUsd = Number(((state.daily.estimatedCostUsd ?? 0) + repairCost).toFixed(6));
+      await writeState(state);
+
+      parsed = parseJson(extractText(repairRaw));
+    }
     const rows = Array.isArray(parsed?.matches) ? parsed.matches : [];
     const audit = Array.isArray(parsed?.audit) ? parsed.audit : [];
 
