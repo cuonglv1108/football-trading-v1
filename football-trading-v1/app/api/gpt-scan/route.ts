@@ -66,6 +66,8 @@ Return valid JSON only, exactly in this shape:
       "kickoff": "ISO 8601 string",
       "cornerLine": 10.0,
       "goalLine": 2.75,
+      "favourite": "HOME|AWAY",
+      "handicap": -0.75,
       "sourceSummary": "short source description",
       "sourceUrls": ["https://..."]
     }
@@ -117,8 +119,8 @@ If none can be verified, return {"matches":[]}.`;
           cornersAway: 0,
           prematchCornerLine: Number(m.cornerLine),
           prematchGoalLine: Number(m.goalLine),
-          favourite: 'HOME',
-          handicap: 0,
+          favourite: m.favourite === 'AWAY' ? 'AWAY' : 'HOME',
+          handicap: Number.isFinite(Number(m.handicap)) ? Number(m.handicap) : 0,
           favouriteCoveringHandicap: false,
           favouriteLosing: false,
           ftGoalOverClear: false,
