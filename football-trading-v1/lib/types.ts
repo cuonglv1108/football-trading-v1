@@ -30,4 +30,11 @@ export interface TradingMatch {
   notableScore?: number;
   sourceSummary?: string;
   sourceUrls?: string[];
+  htAction?: 'H2_GOALS_AND_CORNERS' | 'H2_CORNERS' | 'NO_ENTRY' | 'NEED_INPUT';
+  htAdvice?: string;
+  htConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  htMissingInputs?: string[];
+  htSourceSummary?: string;
+  htSourceUrls?: string[];
+  htCheckedAt?: string | null;
 }
