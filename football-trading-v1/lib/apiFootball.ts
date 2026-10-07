@@ -126,30 +126,17 @@ function parseOdds(item: any) {
   };
 }
 
-async function fetchLeagueOdds(leagueId: number, season: number) {
-  const cacheKey = `odds-${leagueId}-${season}`;
-  const cached = readCache<Map<number, ReturnType<typeof parseOdds>>>(cacheKey);
+async function fetchFixtureOdds(fixtureId: number) {
+  const cacheKey = `odds-fixture-${fixtureId}`;
+  const cached = readCache<ReturnType<typeof parseOdds>>(cacheKey);
   if (cached) return cached;
 
-  const result = new Map<number, ReturnType<typeof parseOdds>>();
-  let page = 1;
-  let total = 1;
-
-  do {
-    const data = await apiGet<any>(`/odds?league=${leagueId}&season=${season}&bookmaker=${BOOKMAKER_ID}&page=${page}`);
-    total = data.paging?.total ?? 1;
-
-    for (const item of data.response ?? []) {
-      const parsed = parseOdds(item);
-      if (parsed) result.set(Number(item.fixture?.id), parsed);
-    }
-
-    page += 1;
-  } while (page <= total && page <= 3);
+  const data = await apiGet<any>(`/odds?fixture=${fixtureId}&bookmaker=${BOOKMAKER_ID}`);
+  const parsed = (data.response ?? []).map(parseOdds).find(Boolean) ?? null;
 
   // API-Football says pre-match odds update roughly every 3 hours.
-  writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
-  return result;
+  writeCache(cacheKey, parsed, 3 * 60 * 60 * 1000);
+  return parsed;
 }
 
 function cornerCount(statistics: any): { home: number; away: number } {
@@ -224,23 +211,27 @@ export async function getApiFootballMatches(): Promise<TradingMatch[]> {
 
   const upcomingByLeague = await Promise.all(
     (Object.entries(LEAGUES) as Array<[League, number]>).map(async ([league, leagueId]) => {
-      const [fixtures, oddsMap] = await Promise.all([
-        fetchLeagueFixtures(league, leagueId, season),
-        fetchLeagueOdds(leagueId, season),
-      ]);
+      const fixtures = await fetchLeagueFixtures(league, leagueId, season);
 
-      return fixtures
-        .filter((fixture: any) => {
-          const kickoff = new Date(fixture.fixture?.date ?? 0).getTime();
-          return kickoff >= now && kickoff <= horizon;
-        })
-        .map((fixture: any) => {
-          const odds = oddsMap.get(Number(fixture.fixture?.id));
+      const upcoming = fixtures.filter((fixture: any) => {
+        const kickoff = new Date(fixture.fixture?.date ?? 0).getTime();
+        return kickoff >= now && kickoff <= horizon;
+      });
+
+      const matches = await Promise.all(
+        upcoming.map(async (fixture: any) => {
+          const fixtureId = Number(fixture.fixture?.id);
+          if (!Number.isFinite(fixtureId)) return null;
+
+          const odds = await fetchFixtureOdds(fixtureId);
           if (!odds) return null;
+
           const match = fixtureToBase(league, fixture, odds);
           return { ...match, ...evaluateV1(match) };
         })
-        .filter(Boolean) as TradingMatch[];
+      );
+
+      return matches.filter(Boolean) as TradingMatch[];
     })
   );
 
