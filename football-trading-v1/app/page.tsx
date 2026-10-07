@@ -49,8 +49,36 @@ export default function Home() {
   useEffect(() => {
     setStarred(readSaved(STAR_KEY));
     setHistory(readSaved(HISTORY_KEY));
-    scanUpcoming();
+    loadCachedScan();
   }, []);
+
+  async function loadCachedScan() {
+    try {
+      const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
+      const data = await res.json();
+      const incoming = (data.matches ?? []) as TradingMatch[];
+
+      setMatches(incoming);
+      setProviderStatus(data.providerStatus ?? data.mode ?? '');
+      setUpdatedAt(data.updatedAt ?? '');
+      setNextRefreshAt(data.nextRefreshAt ?? '');
+
+      if (incoming.length) {
+        setStarred(prev => {
+          const merged = new Map<string, TradingMatch>();
+          for (const m of prev) merged.set(m.id, m);
+          for (const m of incoming.filter(m => m.state === 'QUALIFIED')) merged.set(m.id, m);
+          const next = Array.from(merged.values()).sort(
+            (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
+          );
+          localStorage.setItem(STAR_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+    } catch {
+      // Opening the app must never trigger a paid scan or block the UI.
+    }
+  }
 
   function saveStarred(next: TradingMatch[]) {
     setStarred(next);
@@ -220,7 +248,29 @@ export default function Home() {
   }
 
   async function enableNotifications() {
-    if ('Notification' in window) await Notification.requestPermission();
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+
+    if (!('Notification' in window)) {
+      setNotice(isIos
+        ? 'iPhone alerts require the app to be added to Home Screen first.'
+        : 'This browser does not support notifications.');
+      return;
+    }
+
+    if (isIos && !isStandalone) {
+      setNotice('On iPhone: Share → Add to Home Screen, then open the installed app and tap Alerts again.');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      setNotice('Alerts permission enabled on this device.');
+    } else if (permission === 'denied') {
+      setNotice('Alerts are blocked in device/browser settings.');
+    } else {
+      setNotice('Alerts permission was not enabled.');
+    }
   }
 
   const source = view === 'STARRED' ? starred : view === 'HISTORY' ? history : matches;
