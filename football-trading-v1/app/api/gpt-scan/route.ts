@@ -225,10 +225,14 @@ A. First discover the COMPLETE fixture list in the 72-hour window for all four l
 B. Keep an audit row for EVERY fixture you discovered. Never omit a fixture from the audit because odds are missing.
 C. Verify FT Asian goals and FT total-corners lines. Prefer Bet365 when publicly verifiable; otherwise use a reputable odds source showing the exact market/line.
 D. Search efficiently in batches: one search may cover several fixtures. Do not waste one search per fixture when a league/round odds page can verify several.
-E. If one market is missing for a fixture, use remaining searches to repair those missing fields before spending searches elsewhere.
-F. Never infer or guess a line. If either required market still cannot be verified, mark that fixture UNVERIFIED rather than silently dropping it.
-G. QUALIFIED means corners >=10 AND goals >=2.75. NOT_QUALIFIED means both required lines were verified and at least one fails. UNVERIFIED means one or both required lines could not be verified.
-H. Do not use xG, form, predictions, team strength, or any betting method outside V1.
+E. After the fixture list is known, STOP searching for more fixture pages. Spend the remaining web calls on odds verification.
+F. You MUST attempt verification for EVERY discovered fixture before finishing. Batch several named fixtures into one search whenever possible, then use follow-up searches specifically for fixtures still missing one of the two markets.
+G. Do not stop after finding fixtures. A result with fixturesFound > 0 and fixturesVerified = 0 is acceptable only if the web-search tool limit was actually exhausted or no exact odds markets were publicly available after targeted follow-up searches.
+H. Never infer or guess a line. If either required market still cannot be verified, mark that fixture UNVERIFIED rather than silently dropping it.
+I. QUALIFIED means corners >=10 AND goals >=2.75. NOT_QUALIFIED means both required lines were verified and at least one fails. UNVERIFIED means one or both required lines could not be verified.
+J. Do not use xG, form, predictions, team strength, or any betting method outside V1.
+K. For odds verification, search using exact team names plus terms such as "Asian total goals", "over under goals", "total corners", "corners over under", and prioritize market/odds pages over prediction articles.
+L. If a source shows a line in a table or snippet, record that exact line and source URL. Do not require the same source to contain both markets; the two lines may come from different reputable sources.
 
 You have a strict built-in web-tool-call limit for this scan. Use the searches carefully. If you cannot verify the full fixture list and all required lines before the tool limit, set scanStatus to PARTIAL. Only set COMPLETE when the fixture list is complete and every fixture is either QUALIFIED or NOT_QUALIFIED with both required lines verified.
 
@@ -409,7 +413,8 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
       budgetMessage: `Daily guard: ${state.daily.webCalls}/${DAILY_WEB_CALL_CAP} web calls, ${state.daily.paidScans}/${DAILY_PAID_SCAN_CAP} paid scans · est. ${(state.daily.estimatedCostUsd ?? 0).toFixed(3)} today.`,
     };
 
-    state.cache = { payload, expiresAt: Date.now() + SCAN_CACHE_MS };
+    const cacheTtl = scanStatus === 'COMPLETE' ? SCAN_CACHE_MS : Math.min(SCAN_CACHE_MS, 15 * 60 * 1000);
+    state.cache = { payload, expiresAt: Date.now() + cacheTtl };
     await writeState(state);
 
     console.log('GPT scan success', {
