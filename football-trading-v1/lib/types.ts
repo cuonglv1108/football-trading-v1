@@ -28,4 +28,6 @@ export interface TradingMatch {
   winProbability?: number;
   notable?: boolean;
   notableScore?: number;
+  sourceSummary?: string;
+  sourceUrls?: string[];
 }
