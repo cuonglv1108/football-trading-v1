@@ -43,6 +43,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState('');
   const [updatedAt, setUpdatedAt] = useState('');
+  const [nextRefreshAt, setNextRefreshAt] = useState('');
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,6 +89,7 @@ export default function Home() {
       setMatches(incoming);
       setProviderStatus(data.providerStatus ?? data.mode ?? '');
       setUpdatedAt(data.updatedAt ?? '');
+      setNextRefreshAt(data.nextRefreshAt ?? '');
 
       if (incoming.length) {
         setStarred(prev => {
@@ -102,7 +104,9 @@ export default function Home() {
           return next;
         });
 
-        setNotice(`GPT scanned next 72h · ${incoming.length} qualified V1 matches`);
+        setNotice(data.cacheStatus === 'HIT'
+          ? `Shared result · ${incoming.length} qualified V1 matches · no new GPT cost`
+          : `New GPT scan · ${incoming.length} qualified V1 matches`);
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
         setNotice(status === 'OPENAI_API_KEY_MISSING'
@@ -348,6 +352,7 @@ export default function Home() {
       <footer>
         <span>Pre-match auto scan · live checks on demand</span>
         <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for scan'}</span>
+        {nextRefreshAt && <span>{`Free refresh after ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
       </footer>
     </main>
   );
