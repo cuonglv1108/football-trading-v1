@@ -320,3 +320,33 @@ footer { display:flex; justify-content:space-between; gap:12px; color:var(--mute
   text-decoration:underline;
   opacity:.8;
 }
+
+
+.htCheckBtn {
+  width:100%;
+  margin-top:12px;
+  border:1px solid rgba(54,212,122,.28);
+  background:rgba(54,212,122,.08);
+  color:var(--green);
+  border-radius:12px;
+  padding:11px 13px;
+  cursor:pointer;
+  font-weight:800;
+}
+.htCheckBtn:disabled { opacity:.55; cursor:wait; }
+
+.htAdvice {
+  margin-top:12px;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid rgba(54,212,122,.16);
+  background:rgba(54,212,122,.05);
+  display:grid;
+  gap:6px;
+}
+.htAdviceTop { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.htAdviceTop span { color:var(--muted); font-size:10px; letter-spacing:.08em; font-weight:800; }
+.htAdviceTop b { font-size:12px; color:var(--green); }
+.htAdvice p { margin:0; color:var(--text); font-size:12px; line-height:1.45; }
+.htAdvice small { color:var(--muted); font-size:10px; }
+.htAdvice a { color:var(--text); font-size:10px; text-decoration:underline; opacity:.8; }
