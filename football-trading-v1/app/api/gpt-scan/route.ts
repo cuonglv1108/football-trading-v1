@@ -412,6 +412,18 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
     state.cache = { payload, expiresAt: Date.now() + SCAN_CACHE_MS };
     await writeState(state);
 
+    console.log('GPT scan success', {
+      scanStatus,
+      fixturesFound,
+      fixturesVerified,
+      unverifiedCount,
+      qualifiedMatches: matches.length,
+      webCallsThisScan,
+      inputTokensThisScan,
+      outputTokensThisScan,
+      estimatedCostUsd: Number(estimatedCostUsd.toFixed(6)),
+    });
+
     return {
       ...payload,
       nextRefreshAt: new Date(state.cache.expiresAt).toISOString(),
