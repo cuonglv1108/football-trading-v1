@@ -6,6 +6,36 @@ export const dynamic = 'force-dynamic';
 
 const ALLOWED_LEAGUES: League[] = ['MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 
+type ScanPayload = {
+  updatedAt: string;
+  mode: 'GPT_WEB_SCAN';
+  dataSource: string;
+  providerStatus: string;
+  matches: TradingMatch[];
+  cacheStatus?: 'HIT' | 'MISS';
+  nextRefreshAt?: string;
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __v1ScanCache: { payload: ScanPayload; expiresAt: number } | undefined;
+  // eslint-disable-next-line no-var
+  var __v1ScanInFlight: Promise<ScanPayload> | undefined;
+}
+
+const SCAN_CACHE_MS = Number(process.env.GPT_SCAN_CACHE_MS ?? 6 * 60 * 60 * 1000);
+
+function cachedPayload(): ScanPayload | null {
+  const hit = globalThis.__v1ScanCache;
+  if (!hit || hit.expiresAt <= Date.now()) return null;
+  return {
+    ...hit.payload,
+    cacheStatus: 'HIT',
+    nextRefreshAt: new Date(hit.expiresAt).toISOString(),
+  };
+}
+
+
 function extractText(response: any): string {
   if (typeof response?.output_text === 'string') return response.output_text;
   const chunks: string[] = [];
@@ -26,6 +56,22 @@ function parseJson(text: string) {
 }
 
 export async function GET() {
+  const cached = cachedPayload();
+  if (cached) {
+    return NextResponse.json(cached, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  }
+
+  if (globalThis.__v1ScanInFlight) {
+    const shared = await globalThis.__v1ScanInFlight;
+    return NextResponse.json({
+      ...shared,
+      cacheStatus: 'HIT',
+      nextRefreshAt: globalThis.__v1ScanCache
+        ? new Date(globalThis.__v1ScanCache.expiresAt).toISOString()
+        : undefined,
+    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({
@@ -75,7 +121,7 @@ Return valid JSON only, exactly in this shape:
 }
 If none can be verified, return {"matches":[]}.`;
 
-  try {
+  const runScan = async (): Promise<ScanPayload> => {
     const res = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -130,13 +176,30 @@ If none can be verified, return {"matches":[]}.`;
         return { ...base, ...evaluateV1(base) };
       });
 
-    return NextResponse.json({
+    const payload: ScanPayload = {
       updatedAt: new Date().toISOString(),
       mode: 'GPT_WEB_SCAN',
       dataSource: 'OpenAI web search',
       providerStatus: 'CONNECTED',
       matches,
-    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+      cacheStatus: 'MISS',
+    };
+
+    globalThis.__v1ScanCache = {
+      payload,
+      expiresAt: Date.now() + SCAN_CACHE_MS,
+    };
+
+    return {
+      ...payload,
+      nextRefreshAt: new Date(globalThis.__v1ScanCache.expiresAt).toISOString(),
+    };
+  };
+
+  try {
+    globalThis.__v1ScanInFlight = runScan();
+    const payload = await globalThis.__v1ScanInFlight;
+    return NextResponse.json(payload, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
     console.error('GPT web scanner error', error);
     return NextResponse.json({
@@ -146,5 +209,7 @@ If none can be verified, return {"matches":[]}.`;
       providerStatus: 'ERROR',
       providerError: error instanceof Error ? error.message : 'Unknown scanner error',
     }, { status: 200, headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  } finally {
+    globalThis.__v1ScanInFlight = undefined;
   }
 }
