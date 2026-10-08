@@ -86,6 +86,29 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
           : `Corner setup triggered, but H2 line ${cornerLine} is below V1 range 8.5+.`,
       grade: 'PENDING',
     });
+  } else if (match.htAction === 'NO_ENTRY') {
+    out.push({
+      market: 'H2_GOALS',
+      direction: 'OVER',
+      line: goalLine,
+      setupKey: 'CONTROL_NO_ENTRY_GOALS',
+      active: false,
+      note: goalLine == null
+        ? 'No V1 trade. Research-only H2 Goals record; exact HT line was not verified.'
+        : `No V1 trade. Research-only H2 Goals Over ${goalLine} for control comparison.`,
+      grade: 'PENDING',
+    });
+    out.push({
+      market: 'H2_CORNERS',
+      direction: 'OVER',
+      line: cornerLine,
+      setupKey: 'CONTROL_NO_ENTRY_CORNERS',
+      active: false,
+      note: cornerLine == null
+        ? 'No V1 trade. Research-only H2 Corners record; exact HT line was not verified.'
+        : `No V1 trade. Research-only H2 Corners Over ${cornerLine} for control comparison.`,
+      grade: 'PENDING',
+    });
   }
 
   return out;
@@ -97,7 +120,7 @@ export function gradeMatchPredictions(match: TradingMatch): H2Prediction[] {
     return {
       ...p,
       actual: actual ?? null,
-      grade: p.active ? gradeAsianOver(actual, p.line) : 'UNRESOLVED',
+      grade: p.line == null ? 'UNRESOLVED' : gradeAsianOver(actual, p.line),
     };
   });
 }
