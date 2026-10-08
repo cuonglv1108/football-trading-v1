@@ -1,5 +1,31 @@
 export type League = 'MLS' | 'Allsvenskan' | 'Liga MX' | 'Brazil Serie A';
 export type MatchState = 'QUALIFIED' | 'WATCHING' | 'TRIGGER' | 'CANCELLED';
+export type OutcomeGrade = 'PENDING' | 'FULL_WIN' | 'HALF_WIN' | 'PUSH' | 'HALF_LOSS' | 'FULL_LOSS' | 'UNRESOLVED';
+
+export interface H2Prediction {
+  market: 'H2_GOALS' | 'H2_CORNERS';
+  direction: 'OVER';
+  line: number | null;
+  setupKey: string;
+  active: boolean;
+  note: string;
+  grade?: OutcomeGrade;
+  actual?: number | null;
+}
+
+export interface SetupStats {
+  key: string;
+  market: 'H2_GOALS' | 'H2_CORNERS';
+  samples: number;
+  fullWins: number;
+  halfWins: number;
+  pushes: number;
+  halfLosses: number;
+  fullLosses: number;
+  observedAccuracy: number;
+  smoothedAccuracy: number;
+  confidenceLabel: 'LOW_SAMPLE' | 'DEVELOPING' | 'ESTABLISHED';
+}
 
 export interface TradingMatch {
   id: string;
@@ -57,4 +83,6 @@ export interface TradingMatch {
   h2ActualGoals?: number | null;
   h2ActualCorners?: number | null;
   researchPhase?: 'HT' | 'FT' | 'MANUAL';
+  h2Predictions?: H2Prediction[];
+  setupStats?: SetupStats[];
 }
