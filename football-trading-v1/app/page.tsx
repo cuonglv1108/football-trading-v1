@@ -53,7 +53,9 @@ export default function Home() {
   const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
 
   useEffect(() => {
-    setStarred(readSaved(STAR_KEY));
+    const savedWatchlist = readSaved(STAR_KEY).filter(m => m.status !== 'FT');
+    setStarred(savedWatchlist);
+    localStorage.setItem(STAR_KEY, JSON.stringify(savedWatchlist));
     setHistory(readSaved(HISTORY_KEY));
     loadCachedScan();
     loadSharedResearch();
@@ -130,7 +132,10 @@ export default function Home() {
       const results = (data.results ?? []) as TradingMatch[];
       const byId = new Map(results.map(m => [m.id, m]));
       setStarred(prev => {
-        const next = prev.map(m => byId.get(m.id) ?? m);
+        const completedIds = new Set(results.filter(m => m.status === 'FT').map(m => m.id));
+        const next = phase === 'FT'
+          ? prev.filter(m => !completedIds.has(m.id) && m.status !== 'FT')
+          : prev.map(m => byId.get(m.id) ?? m).filter(m => m.status !== 'FT');
         localStorage.setItem(STAR_KEY, JSON.stringify(next));
         return next;
       });
@@ -175,8 +180,8 @@ export default function Home() {
       if (incoming.length) {
         setStarred(prev => {
           const merged = new Map<string, TradingMatch>();
-          for (const m of prev) merged.set(m.id, m);
-          for (const m of incoming.filter(m => m.state === 'QUALIFIED')) merged.set(m.id, m);
+          for (const m of prev.filter(m => m.status !== 'FT')) merged.set(m.id, m);
+          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT')) merged.set(m.id, m);
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
@@ -251,8 +256,8 @@ export default function Home() {
         setStarred(prev => {
           const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
           const merged = new Map<string, TradingMatch>();
-          for (const m of prev) merged.set(m.id, m);
-          for (const m of autoPicks) merged.set(m.id, m);
+          for (const m of prev.filter(m => m.status !== 'FT')) merged.set(m.id, m);
+          for (const m of autoPicks.filter(m => m.status !== 'FT')) merged.set(m.id, m);
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
@@ -278,7 +283,7 @@ export default function Home() {
           : status === 'DAILY_BUDGET_REACHED'
             ? 'Daily scan budget reached. No paid scan was started.'
             : status === 'ERROR'
-              ? `Scan failed safely · ${data.providerError ?? 'scanner error'}`
+              ? `Scan stopped safely · ${data.providerError ?? 'scanner error'} · saved watchlist/history kept`
               : data.scanStatus === 'PARTIAL'
                 ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures verified · no qualifying match verified yet.`
                 : 'Scan complete · no verified V1 matches found.');
@@ -363,8 +368,9 @@ export default function Home() {
   }
 
   function toggleStar(match: TradingMatch) {
+    if (match.status === 'FT') return;
     const exists = starred.some(m => m.id === match.id);
-    saveStarred(exists ? starred.filter(m => m.id !== match.id) : [{ ...match }, ...starred]);
+    saveStarred(exists ? starred.filter(m => m.id !== match.id) : [{ ...match }, ...starred.filter(m => m.status !== 'FT')]);
   }
 
   function submitCheckpoint(e: FormEvent<HTMLFormElement>) {
@@ -430,13 +436,13 @@ export default function Home() {
     }
   }
 
-  const source = view === 'STARRED' ? starred : view === 'HISTORY' ? history : matches;
+  const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT') : view === 'HISTORY' ? history : matches;
   const filtered = useMemo(
     () => league === 'ALL' ? source : source.filter(m => m.league === league),
     [source, league]
   );
 
-  const dueCount = starred.filter(m => /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
+  const dueCount = starred.filter(m => m.status !== 'FT' && /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
   const triggerCount = starred.filter(m => m.state === 'TRIGGER').length;
   const qualifiedCount = matches.filter(m => m.state === 'QUALIFIED').length;
 
