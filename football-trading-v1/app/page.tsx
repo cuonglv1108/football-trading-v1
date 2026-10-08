@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
-import { League, TradingMatch } from '../lib/types';
+import { League, SetupStats, TradingMatch } from '../lib/types';
+import { buildH2Predictions } from '../lib/outcomes';
 
 const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 type View = 'SCANNER' | 'STARRED' | 'HISTORY';
@@ -49,6 +50,7 @@ export default function Home() {
   const [budgetStatus, setBudgetStatus] = useState('');
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
+  const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
 
   useEffect(() => {
     setStarred(readSaved(STAR_KEY));
@@ -62,6 +64,7 @@ export default function Home() {
       const res = await fetch('/api/research', { cache: 'no-store' });
       const data = await res.json();
       const shared = (data.rows ?? []) as TradingMatch[];
+      setSetupStats((data.stats ?? []) as SetupStats[]);
       if (!shared.length) return;
       setHistory(prev => {
         const merged = new Map<string, TradingMatch>();
@@ -138,6 +141,8 @@ export default function Home() {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
         return deduped;
       });
+
+      if (phase === 'FT') void loadSharedResearch();
 
       setNotice(
         `${phase} Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · est. ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`
@@ -306,7 +311,7 @@ export default function Home() {
         return;
       }
 
-      const updated: TradingMatch = {
+      const baseUpdated: TradingMatch = {
         ...match,
         status: 'HT',
         scoreHome: data.scoreHome ?? match.scoreHome,
@@ -330,6 +335,11 @@ export default function Home() {
         h2CornersAssessment: data.h2CornersAssessment,
         htDataNote: data.dataNote,
         checkedAt: data.checkedAt ?? new Date().toISOString(),
+      };
+
+      const updated: TradingMatch = {
+        ...baseUpdated,
+        h2Predictions: buildH2Predictions(baseUpdated),
       };
 
       setMatches(prev => prev.map(m => m.id === updated.id ? updated : m));
@@ -469,11 +479,39 @@ export default function Home() {
         ))}
       </nav>
 
-      {view === 'HISTORY' && history.length > 0 && (
-        <div className="historyBar">
-          <span>HT/FT research snapshots are shared and persisted for later V1 analysis.</span>
-          <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear local</button>
-        </div>
+      {view === 'HISTORY' && (
+        <>
+          {setupStats.length > 0 && (
+            <section className="historyStats">
+              <div className="historyBar">
+                <span>Historical V1 accuracy by setup. Small samples are intentionally marked as low confidence.</span>
+              </div>
+              <div className="matchList">
+                {setupStats.map(stat => (
+                  <div className="card compact" key={`${stat.market}-${stat.key}`}>
+                    <div className="cardTop">
+                      <span className="league">{stat.market.replace(/_/g, ' ')}</span>
+                      <span className="status">{stat.confidenceLabel.replace(/_/g, ' ')}</span>
+                    </div>
+                    <strong>{stat.key.replace(/_/g, ' ')}</strong>
+                    <div className="metrics">
+                      <div><span>Samples</span><b>{stat.samples}</b></div>
+                      <div><span>Observed</span><b>{stat.observedAccuracy}%</b></div>
+                      <div><span>Smoothed</span><b>{stat.smoothedAccuracy}%</b></div>
+                    </div>
+                    <small>W {stat.fullWins} · 1/2W {stat.halfWins} · P {stat.pushes} · 1/2L {stat.halfLosses} · L {stat.fullLosses}</small>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {history.length > 0 && (
+            <div className="historyBar">
+              <span>HT recommendations and FT outcomes are shared and persisted for later V1 analysis.</span>
+              <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear local</button>
+            </div>
+          )}
+        </>
       )}
 
       <section className="matchList">
