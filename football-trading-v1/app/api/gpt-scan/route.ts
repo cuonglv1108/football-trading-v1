@@ -11,7 +11,7 @@ const ALLOWED_LEAGUES: League[] = ['MLS', 'Allsvenskan', 'Liga MX', 'Brazil Seri
 const SCAN_CACHE_MS = Number(process.env.GPT_SCAN_CACHE_MS ?? 6 * 60 * 60 * 1000);
 const DAILY_WEB_CALL_CAP = Number(process.env.GPT_DAILY_WEB_CALL_CAP ?? 20);
 const DAILY_PAID_SCAN_CAP = Number(process.env.GPT_DAILY_PAID_SCAN_CAP ?? 2);
-const MAX_WEB_CALLS_PER_SCAN = Number(process.env.GPT_MAX_WEB_CALLS_PER_SCAN ?? 10);
+const MAX_WEB_CALLS_PER_SCAN = Number(process.env.GPT_MAX_WEB_CALLS_PER_SCAN ?? 6);
 const STATE_FILE = process.env.GPT_SCAN_STATE_FILE || '/data/v1-scan-state.json';
 
 type ScanPayload = {
@@ -218,23 +218,27 @@ A match qualifies only when BOTH are verified:
 1) Full-time total corners line >= 10.0
 2) Full-time Asian total goals line >= 2.75
 
-ACCURACY PRIORITY
-The biggest failure to avoid is silently missing a qualifying match.
-Work fixture-first:
-A. First discover the COMPLETE fixture list in the 72-hour window for all four leagues.
-B. Keep an audit row for EVERY fixture you discovered. Never omit a fixture from the audit because odds are missing.
-C. Verify FT Asian goals and FT total-corners lines. Prefer Bet365 when publicly verifiable; otherwise use a reputable odds source showing the exact market/line.
-D. Search efficiently in batches: one search may cover several fixtures. Do not waste one search per fixture when a league/round odds page can verify several.
-E. After the fixture list is known, STOP searching for more fixture pages. Spend the remaining web calls on odds verification.
-F. You MUST attempt verification for EVERY discovered fixture before finishing. Batch several named fixtures into one search whenever possible, then use follow-up searches specifically for fixtures still missing one of the two markets.
-G. Do not stop after finding fixtures. A result with fixturesFound > 0 and fixturesVerified = 0 is acceptable only if the web-search tool limit was actually exhausted or no exact odds markets were publicly available after targeted follow-up searches.
-H. Never infer or guess a line. If either required market still cannot be verified, mark that fixture UNVERIFIED rather than silently dropping it.
-I. QUALIFIED means corners >=10 AND goals >=2.75. NOT_QUALIFIED means both required lines were verified and at least one fails. UNVERIFIED means one or both required lines could not be verified.
-J. Do not use xG, form, predictions, team strength, or any betting method outside V1.
-K. For odds verification, search using exact team names plus terms such as "Asian total goals", "over under goals", "total corners", "corners over under", and prioritize market/odds pages over prediction articles.
-L. If a source shows a line in a table or snippet, record that exact line and source URL. Do not require the same source to contain both markets; the two lines may come from different reputable sources.
+ACCURACY + COST PRIORITY
+The biggest failures to avoid are (1) silently missing a qualifying match and (2) wasting web calls.
 
-You have a strict built-in web-tool-call limit for this scan. Use the searches carefully. If you cannot verify the full fixture list and all required lines before the tool limit, set scanStatus to PARTIAL. Only set COMPLETE when the fixture list is complete and every fixture is either QUALIFIED or NOT_QUALIFIED with both required lines verified.
+Use this SOURCE-FIRST plan:
+A. Start with these four exact TotalCorner league pages because each page can expose many fixtures plus both required market lines in one place:
+   - MLS: https://www.totalcorner.com/league/view/85
+   - Allsvenskan: https://www.totalcorner.com/league/view/66
+   - Liga MX: https://www.totalcorner.com/league/view/779
+   - Brazil Serie A: https://www.totalcorner.com/league/view/129
+B. Use one league-page search/open attempt per league first. Read all fixtures inside START..END, including rows that fail V1.
+C. TotalCorner table meaning: "Asian Corn." is the FT total-corners line; "Goals" is the Asian FT total-goals line. A comma split such as "2.5, 3.0" means 2.75; "3.0, 3.5" means 3.25; similarly for quarter corner lines.
+D. Only use remaining web calls for fixtures whose kickoff or one required line is unclear. Batch unresolved fixtures together rather than one search per match.
+E. Prefer the exact league page/table value. A different reputable source may be used only to fill a genuinely missing field.
+F. Keep a COMPACT audit row for every fixture discovered inside the 72-hour window. Do not add prose to audit rows.
+G. Never infer or guess a line. If either required market cannot be verified, mark UNVERIFIED.
+H. QUALIFIED = corners >=10 AND goals >=2.75. NOT_QUALIFIED = both lines verified and at least one fails. UNVERIFIED = one or both lines missing.
+I. Do not use xG, form, predictions, team strength, or any betting system outside V1.
+J. Stop searching once all four league pages and any genuinely unresolved rows have been handled. Do not burn remaining calls just because they are available.
+
+OUTPUT MUST BE COMPACT. Do not narrate your work. Keep sourceSummary under 20 words and sourceUrls to at most 1 URL per audit row/match.
+If not every fixture can be verified, set scanStatus PARTIAL. COMPLETE is allowed only when every discovered fixture in the time window has both required lines verified.
 
 Return VALID JSON ONLY:
 {
@@ -284,7 +288,7 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
         tools: [{ type: 'web_search' }],
         tool_choice: 'required',
         max_tool_calls: maxToolCalls,
-        max_output_tokens: 6500,
+        max_output_tokens: 12000,
         input: prompt,
       }),
       cache: 'no-store',
@@ -294,8 +298,43 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
     if (!res.ok) throw new Error(raw?.error?.message || `OpenAI HTTP ${res.status}`);
 
     const webCallsThisScan = countWebCalls(raw);
-    const inputTokensThisScan = Number(raw?.usage?.input_tokens ?? 0);
-    const outputTokensThisScan = Number(raw?.usage?.output_tokens ?? 0);
+    let inputTokensThisScan = Number(raw?.usage?.input_tokens ?? 0);
+    let outputTokensThisScan = Number(raw?.usage?.output_tokens ?? 0);
+
+
+    // Count the paid web work immediately so failures can never evade the daily guard.
+    state.daily.webCalls += webCallsThisScan;
+    state.daily.paidScans += 1;
+
+    let responseText = extractText(raw);
+
+    // If the model used its search budget but hit the output ceiling before emitting final JSON,
+    // continue from the same response WITHOUT web search. This salvages paid search work cheaply.
+    if (!responseText.trim() && raw?.incomplete_details?.reason === 'max_output_tokens' && raw?.id) {
+      const continuationRes = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_SCAN_MODEL || 'gpt-6-luna',
+          previous_response_id: raw.id,
+          max_output_tokens: 5000,
+          input: 'Using only information already gathered in the previous response, output the requested scanner JSON now. Do not search again. Keep it compact. Do not add or infer facts.',
+        }),
+        cache: 'no-store',
+      });
+      const continuationRaw = await continuationRes.json();
+      if (continuationRes.ok) {
+        const ci = Number(continuationRaw?.usage?.input_tokens ?? 0);
+        const co = Number(continuationRaw?.usage?.output_tokens ?? 0);
+        inputTokensThisScan += ci;
+        outputTokensThisScan += co;
+        responseText = extractText(continuationRaw);
+      }
+    }
+
     // Current GPT-6 Luna Standard rates: $0.10/M input, $0.50/M output.
     // Web search is $0.01/call. This is an estimate shown for budget control.
     const estimatedCostUsd =
@@ -303,13 +342,9 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
       inputTokensThisScan * 0.10 / 1_000_000 +
       outputTokensThisScan * 0.50 / 1_000_000;
 
-    // Count spend BEFORE parsing so a malformed/incomplete model response can never escape the daily guard.
-    state.daily.webCalls += webCallsThisScan;
-    state.daily.paidScans += 1;
     state.daily.estimatedCostUsd = Number(((state.daily.estimatedCostUsd ?? 0) + estimatedCostUsd).toFixed(6));
     await writeState(state);
 
-    const responseText = extractText(raw);
     if (!responseText.trim()) {
       const incompleteReason = raw?.incomplete_details?.reason || raw?.status || 'no final JSON';
       throw new Error(`Scanner incomplete after ${webCallsThisScan} web calls (${incompleteReason})`);
