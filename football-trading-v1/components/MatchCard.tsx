@@ -100,6 +100,16 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div className="liveLines">
               <span>H2 actual</span>
               <b>Goals {match.h2ActualGoals ?? '—'} · Corners {match.h2ActualCorners ?? '—'}</b>
+              {match.researchPhase === 'FT' && (
+                <small>
+                  {match.h2ActualGoals != null
+                    ? `H2 goals produced ${match.h2ActualGoals}. ${match.h2ActualGoals >= 2 ? 'This was strong H2 goal activity, but exact WIN/PUSH depends on the HT line.' : match.h2ActualGoals === 1 ? 'Some lower H2 goal lines may have won/pushed; exact grade depends on the HT line.' : 'No H2 goals were scored.'}`
+                    : ''}
+                  {match.h2ActualCorners != null
+                    ? ` H2 corners produced ${match.h2ActualCorners}. ${match.h2ActualCorners >= 9 ? 'This cleared 8.5, but exact grading still depends on the saved HT corner line.' : 'This did not clear 8.5.'}`
+                    : ''}
+                </small>
+              )}
             </div>
           )}
 
@@ -119,7 +129,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                   <small>{p.note}</small>
                   {p.actual != null && <small>Actual H2: {p.actual}</small>}
                   {match.researchPhase === 'FT' && p.grade === 'UNRESOLVED' && (
-                    <small>Result cannot be graded exactly because the HT market line was not verified.</small>
+                    <small>
+                      Exact bet grade is unresolved because the HT market line was not verified.
+                      {p.actual != null ? ` The actual H2 result was ${p.actual}, so this record still remains useful as research data.` : ''}
+                    </small>
                   )}
                 </div>
               ))}
