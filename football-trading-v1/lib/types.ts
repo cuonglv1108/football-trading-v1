@@ -41,4 +41,20 @@ export interface TradingMatch {
   h2GoalsAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
   h2CornersAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
   htDataNote?: string;
+  htScoreHome?: number | null;
+  htScoreAway?: number | null;
+  htCornersHome?: number | null;
+  htCornersAway?: number | null;
+  redCardsHome?: number | null;
+  redCardsAway?: number | null;
+  ftScoreHome?: number | null;
+  ftScoreAway?: number | null;
+  ftCornersHome?: number | null;
+  ftCornersAway?: number | null;
+  ftCheckedAt?: string | null;
+  ftSourceSummary?: string;
+  ftSourceUrls?: string[];
+  h2ActualGoals?: number | null;
+  h2ActualCorners?: number | null;
+  researchPhase?: 'HT' | 'FT' | 'MANUAL';
 }
