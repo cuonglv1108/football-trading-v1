@@ -91,6 +91,20 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           </div>
 
+          {(match.redCardsHome != null || match.redCardsAway != null) && (
+            <div className="liveLines">
+              <span>Red cards</span>
+              <b>{match.redCardsHome ?? 0} - {match.redCardsAway ?? 0}</b>
+            </div>
+          )}
+
+          {match.h2ActualGoals != null && match.h2ActualCorners != null && (
+            <div className="liveLines">
+              <span>H2 actual</span>
+              <b>Goals {match.h2ActualGoals} · Corners {match.h2ActualCorners}</b>
+            </div>
+          )}
+
           {match.htAction && (
             <div className="htAdvice">
               <div className="htAdviceTop">
