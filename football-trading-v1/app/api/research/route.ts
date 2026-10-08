@@ -65,7 +65,8 @@ function combineResearch(rows: TradingMatch[]) {
       };
 
       const predictions = (ft.h2Predictions?.length ? ft.h2Predictions : ht?.h2Predictions?.length ? ht.h2Predictions : buildH2Predictions(mergedBase));
-      combined.push(gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions }));
+      const gradedPredictions = gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions });
+      combined.push({ ...mergedBase, h2Predictions: gradedPredictions });
     } else if (group.ht) {
       combined.push({
         ...group.ht,
