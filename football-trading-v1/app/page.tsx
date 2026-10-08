@@ -231,6 +231,10 @@ export default function Home() {
         htSourceSummary: data.sourceSummary,
         htSourceUrls: Array.isArray(data.sourceUrls) ? data.sourceUrls : [],
         htCheckedAt: data.checkedAt ?? new Date().toISOString(),
+        htEvaluationType: data.evaluationType,
+        h2GoalsAssessment: data.h2GoalsAssessment,
+        h2CornersAssessment: data.h2CornersAssessment,
+        htDataNote: data.dataNote,
         checkedAt: data.checkedAt ?? new Date().toISOString(),
       };
 
