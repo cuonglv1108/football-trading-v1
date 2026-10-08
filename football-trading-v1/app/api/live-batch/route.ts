@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { TradingMatch } from '../../../lib/types';
 import { saveResearchBatch } from '../../../lib/researchStore';
+import { buildH2Predictions, gradeMatchPredictions } from '../../../lib/outcomes';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -102,7 +103,7 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
   }
 
   const checkedAt = new Date().toISOString();
-  return {
+  const base: TradingMatch = {
     ...match,
     status: 'HT',
     scoreHome: scoreHome ?? match.scoreHome,
@@ -134,6 +135,11 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
     h2CornersAssessment,
     htDataNote: reason,
   };
+
+  return {
+    ...base,
+    h2Predictions: buildH2Predictions(base),
+  };
 }
 
 function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
@@ -153,7 +159,7 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const h2ActualCorners = htCorners != null && ftCorners != null ? Math.max(0, ftCorners - htCorners) : null;
   const checkedAt = new Date().toISOString();
 
-  return {
+  const base: TradingMatch = {
     ...match,
     status: 'FT',
     scoreHome: ftScoreHome ?? match.scoreHome,
@@ -173,6 +179,11 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
     researchPhase: 'FT',
     ftSourceSummary: typeof row.sourceSummary === 'string' ? row.sourceSummary : 'FT batch web verification',
     ftSourceUrls: Array.isArray(row.sourceUrls) ? row.sourceUrls.filter((x: unknown) => typeof x === 'string') : [],
+  };
+
+  return {
+    ...base,
+    h2Predictions: gradeMatchPredictions(base),
   };
 }
 
