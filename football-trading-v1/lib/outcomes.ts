@@ -147,7 +147,7 @@ export function computeSetupStats(rows: TradingMatch[]): SetupStats[] {
       fullLosses: bucket.grades.filter(g => g === 'FULL_LOSS').length,
       observedAccuracy,
       smoothedAccuracy,
-      confidenceLabel: samples >= 20 ? 'ESTABLISHED' : samples >= 8 ? 'DEVELOPING' : 'LOW_SAMPLE',
+      confidenceLabel: (samples >= 20 ? 'ESTABLISHED' : samples >= 8 ? 'DEVELOPING' : 'LOW_SAMPLE') as SetupStats['confidenceLabel'],
     };
   }).sort((a, b) => b.samples - a.samples);
 }
