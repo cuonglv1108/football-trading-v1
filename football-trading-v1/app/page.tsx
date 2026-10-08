@@ -48,12 +48,106 @@ export default function Home() {
   const [scanCoverage, setScanCoverage] = useState('');
   const [budgetStatus, setBudgetStatus] = useState('');
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
+  const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
 
   useEffect(() => {
     setStarred(readSaved(STAR_KEY));
     setHistory(readSaved(HISTORY_KEY));
     loadCachedScan();
+    loadSharedResearch();
   }, []);
+
+  async function loadSharedResearch() {
+    try {
+      const res = await fetch('/api/research', { cache: 'no-store' });
+      const data = await res.json();
+      const shared = (data.rows ?? []) as TradingMatch[];
+      if (!shared.length) return;
+      setHistory(prev => {
+        const merged = new Map<string, TradingMatch>();
+        for (const m of shared) merged.set(`${m.id}-${m.researchPhase ?? m.status}`, m);
+        for (const m of prev) {
+          const key = `${m.id}-${m.researchPhase ?? m.status}`;
+          if (!merged.has(key)) merged.set(key, m);
+        }
+        const next = Array.from(merged.values()).slice(0, 500);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+    } catch {
+      // Local history remains available if shared history cannot load.
+    }
+  }
+
+  async function persistResearch(snapshot: TradingMatch) {
+    try {
+      await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      });
+    } catch {
+      // History still remains locally available.
+    }
+  }
+
+  function dueForPhase(match: TradingMatch, phase: 'HT' | 'FT') {
+    if (!match.kickoff) return false;
+    const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
+    if (phase === 'HT') return elapsed >= 43 && elapsed <= 85 && !match.htCheckedAt;
+    return elapsed >= 105 && match.status !== 'FT';
+  }
+
+  async function runLiveBatch(phase: 'HT' | 'FT') {
+    const candidates = starred.filter(m => dueForPhase(m, phase)).slice(0, 10);
+    if (!candidates.length) {
+      setNotice(phase === 'HT' ? 'No HT checks are due right now.' : 'No FT checks are due right now.');
+      return;
+    }
+
+    setBatchLoading(phase);
+    setNotice(`${phase} Batch · checking ${candidates.length} matches in one shared request…`);
+    try {
+      const res = await fetch('/api/live-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase, matches: candidates }),
+      });
+      const data = await res.json();
+
+      if (data.providerStatus === 'DAILY_LIVE_BUDGET_REACHED') {
+        setNotice('Live-data daily budget reached. No paid batch was started.');
+        return;
+      }
+      if (data.providerStatus !== 'CONNECTED') {
+        setNotice(data.error || 'Batch check failed.');
+        return;
+      }
+
+      const results = (data.results ?? []) as TradingMatch[];
+      const byId = new Map(results.map(m => [m.id, m]));
+      setStarred(prev => {
+        const next = prev.map(m => byId.get(m.id) ?? m);
+        localStorage.setItem(STAR_KEY, JSON.stringify(next));
+        return next;
+      });
+      setMatches(prev => prev.map(m => byId.get(m.id) ?? m));
+      setHistory(prev => {
+        const merged = [...results, ...prev];
+        const deduped = Array.from(new Map(merged.map(m => [`${m.id}-${m.researchPhase ?? m.status}`, m])).values()).slice(0, 500);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
+        return deduped;
+      });
+
+      setNotice(
+        `${phase} Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · est. ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`
+      );
+    } catch {
+      setNotice(`${phase} Batch failed. Saved data was not overwritten.`);
+    } finally {
+      setBatchLoading(null);
+    }
+  }
 
   async function loadCachedScan() {
     try {
@@ -245,6 +339,7 @@ export default function Home() {
         return next;
       });
       saveHistory([updated, ...history]);
+      void persistResearch({ ...updated, researchPhase: 'HT' });
       setNotice(`HT Check · ${String(data.action).replace(/_/g, ' ')}`);
     } catch {
       setNotice('HT Check failed. Try again.');
@@ -283,6 +378,7 @@ export default function Home() {
     setMatches(matches.map(m => m.id === evaluated.id ? evaluated : m));
     saveStarred(starred.map(m => m.id === evaluated.id ? evaluated : m));
     saveHistory([evaluated, ...history]);
+    void persistResearch({ ...evaluated, researchPhase: 'MANUAL' });
 
     if (evaluated.state === 'TRIGGER' && 'Notification' in window && Notification.permission === 'granted') {
       new Notification(`V1 TRIGGER — ${evaluated.home} vs ${evaluated.away}`, {
@@ -339,6 +435,12 @@ export default function Home() {
         </div>
         <div className="headerActions">
           <button className="notify" onClick={enableNotifications}>Alerts</button>
+          <button className="notify" onClick={() => runLiveBatch('HT')} disabled={batchLoading !== null}>
+            {batchLoading === 'HT' ? 'HT Batch…' : 'HT Batch'}
+          </button>
+          <button className="notify" onClick={() => runLiveBatch('FT')} disabled={batchLoading !== null}>
+            {batchLoading === 'FT' ? 'FT Batch…' : 'FT Batch'}
+          </button>
           <button className="addBtn" onClick={scanUpcoming} disabled={loading}>
             {loading ? 'Scanning…' : 'Scan 72h'}
           </button>
@@ -369,8 +471,8 @@ export default function Home() {
 
       {view === 'HISTORY' && history.length > 0 && (
         <div className="historyBar">
-          <span>Every checkpoint snapshot is saved locally.</span>
-          <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear</button>
+          <span>HT/FT research snapshots are shared and persisted for later V1 analysis.</span>
+          <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear local</button>
         </div>
       )}
 
