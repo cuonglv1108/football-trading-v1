@@ -37,4 +37,8 @@ export interface TradingMatch {
   htSourceSummary?: string;
   htSourceUrls?: string[];
   htCheckedAt?: string | null;
+  htEvaluationType?: 'V1_TRIGGER' | 'V1_CANCEL_DATA' | 'NEED_INPUT';
+  h2GoalsAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
+  h2CornersAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
+  htDataNote?: string;
 }
