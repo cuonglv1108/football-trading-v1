@@ -76,6 +76,8 @@ IMPORTANT DECISION RULES:
 - If verified HT corners <= 5 AND verified HT score is 0-0 -> action H2_GOALS_AND_CORNERS immediately. Do NOT require favourite state or live H2 lines.
 - If HT corners <= 5 and score is not 0-0, then use favourite covering / favourite losing / FT Over clear to decide H2_CORNERS.
 - Return NEED_INPUT only when the verified HT score/corners are insufficient to determine any V1 rule.
+- IMPORTANT: even when action is NO_ENTRY, still evaluate the snapshot for research/history. Set evaluationType to V1_CANCEL_DATA, explain exactly why V1 cancelled, and mark H2 goals/corners as V1_SUPPORTED, V1_NOT_SUPPORTED, or UNRESOLVED based ONLY on the user's existing V1 rules. Do not invent a new betting system.
+- A NO_ENTRY snapshot is still valuable training data and must include dataNote.
 - Search specifically for this exact fixture using team names + halftime/HT + corners. Prefer live-score/stat sources over prediction pages.
 - Never treat a pre-HT update (for example minute 40-44) as a verified halftime state.
 - Never guess live odds or corners. Missing optional data should be null and listed in missingInputs, but should not cancel an otherwise valid V1 decision.
@@ -96,7 +98,11 @@ Return ONLY valid JSON:
   "reason": "short explanation using only the V1 rules",
   "missingInputs": ["..."],
   "sourceSummary": "short source description",
-  "sourceUrls": ["https://..."]
+  "sourceUrls": ["https://..."],
+  "evaluationType": "V1_TRIGGER|V1_CANCEL_DATA|NEED_INPUT",
+  "h2GoalsAssessment": "V1_SUPPORTED|V1_NOT_SUPPORTED|UNRESOLVED",
+  "h2CornersAssessment": "V1_SUPPORTED|V1_NOT_SUPPORTED|UNRESOLVED",
+  "dataNote": "short structured research note describing what V1 says and what this snapshot is useful for later analysis"
 }`;
 
     const res = await fetch('https://api.openai.com/v1/responses', {
