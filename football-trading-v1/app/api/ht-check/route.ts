@@ -64,15 +64,21 @@ V1 HT rules:
 6) Relevant H2 goal line range: 1.25 to 2.0
 7) Relevant H2 corner line: 8.5 or higher
 
-Use web search to verify the LIVE/HT state of this exact match if available:
-- HT score
-- HT corners
-- current/live H2 goal line if publicly available
-- current/live H2 corner line if publicly available
-- whether the pre-match favourite is covering or losing
-- whether FT Over Goals is already clearly settled/clear according to the user's rule context
+Use web search to verify the LIVE/HT state of this exact match. PRIORITY ORDER:
+1) Verify that the match is actually at halftime (HT, halftime, interval, or 45'+ with the first half ended).
+2) Verify the HT score.
+3) Verify HT corners for both teams.
+4) Only after that, look for current H2 goal/corner lines and favourite state if needed.
 
-Never guess live odds or corners. If a required live datum cannot be verified, set it to null and say what the user should manually enter.
+IMPORTANT DECISION RULES:
+- H2 live lines are OPTIONAL for deciding the V1 action. They help execution, but missing H2 lines must NOT force NEED_INPUT if the HT score/corners already trigger a V1 rule.
+- If verified HT corners > 5 -> action NO_ENTRY immediately.
+- If verified HT corners <= 5 AND verified HT score is 0-0 -> action H2_GOALS_AND_CORNERS immediately. Do NOT require favourite state or live H2 lines.
+- If HT corners <= 5 and score is not 0-0, then use favourite covering / favourite losing / FT Over clear to decide H2_CORNERS.
+- Return NEED_INPUT only when the verified HT score/corners are insufficient to determine any V1 rule.
+- Search specifically for this exact fixture using team names + halftime/HT + corners. Prefer live-score/stat sources over prediction pages.
+- Never treat a pre-HT update (for example minute 40-44) as a verified halftime state.
+- Never guess live odds or corners. Missing optional data should be null and listed in missingInputs, but should not cancel an otherwise valid V1 decision.
 
 Return ONLY valid JSON:
 {
@@ -102,6 +108,9 @@ Return ONLY valid JSON:
       body: JSON.stringify({
         model: process.env.OPENAI_SCAN_MODEL || 'gpt-6-luna',
         tools: [{ type: 'web_search' }],
+        tool_choice: 'required',
+        max_tool_calls: 5,
+        max_output_tokens: 3500,
         input: prompt,
       }),
       cache: 'no-store',
