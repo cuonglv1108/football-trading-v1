@@ -16,7 +16,7 @@ type Props = {
 export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, compact = false }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
   const probability = match.winProbability ?? 0;
-  const [expanded, setExpanded] = useState(compact);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
@@ -50,13 +50,11 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       )}
 
-      {!compact && (
-        <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
-          {expanded ? 'Hide details' : 'View details'}
-        </button>
-      )}
+      <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
+        {expanded ? 'Hide analysis' : compact ? 'View analysis & result' : 'View details'}
+      </button>
 
-      {(expanded || compact) && (
+      {expanded && (
         <>
           <div className="metrics">
             <div><span>Corners</span><b>{match.cornersHome}-{match.cornersAway} ({totalCorners})</b></div>
@@ -115,11 +113,14 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                 <div key={`${p.market}-${i}`} className="liveLines">
                   <span>{p.market.replace(/_/g, ' ')}</span>
                   <b>
-                    {p.active ? `OVER ${p.line ?? '—'}` : `NOT ACTIVE · line ${p.line ?? '—'}`}
+                    {p.active ? `OVER ${p.line ?? '—'}` : `RESEARCH ONLY · line ${p.line ?? '—'}`}
                     {p.grade && p.grade !== 'PENDING' ? ` · ${p.grade.replace(/_/g, ' ')}` : ''}
                   </b>
                   <small>{p.note}</small>
                   {p.actual != null && <small>Actual H2: {p.actual}</small>}
+                  {match.researchPhase === 'FT' && p.grade === 'UNRESOLVED' && (
+                    <small>Result cannot be graded exactly because the HT market line was not verified.</small>
+                  )}
                 </div>
               ))}
             </div>
