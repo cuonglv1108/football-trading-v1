@@ -98,10 +98,30 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
-          {match.h2ActualGoals != null && match.h2ActualCorners != null && (
+          {(match.h2ActualGoals != null || match.h2ActualCorners != null) && (
             <div className="liveLines">
               <span>H2 actual</span>
-              <b>Goals {match.h2ActualGoals} · Corners {match.h2ActualCorners}</b>
+              <b>Goals {match.h2ActualGoals ?? '—'} · Corners {match.h2ActualCorners ?? '—'}</b>
+            </div>
+          )}
+
+          {(match.h2Predictions ?? []).length > 0 && (
+            <div className="htAdvice">
+              <div className="htAdviceTop">
+                <span>H2 RESEARCH RECORD</span>
+                <b>{match.researchPhase === 'FT' ? 'GRADED' : 'PENDING FT'}</b>
+              </div>
+              {(match.h2Predictions ?? []).map((p, i) => (
+                <div key={`${p.market}-${i}`} className="liveLines">
+                  <span>{p.market.replace(/_/g, ' ')}</span>
+                  <b>
+                    {p.active ? `OVER ${p.line ?? '—'}` : `NOT ACTIVE · line ${p.line ?? '—'}`}
+                    {p.grade && p.grade !== 'PENDING' ? ` · ${p.grade.replace(/_/g, ' ')}` : ''}
+                  </b>
+                  <small>{p.note}</small>
+                  {p.actual != null && <small>Actual H2: {p.actual}</small>}
+                </div>
+              ))}
             </div>
           )}
 
@@ -122,6 +142,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
               )}
               {(match.htSourceUrls ?? []).slice(0,2).map((url, i) => (
                 <a key={url+i} href={url} target="_blank" rel="noreferrer">HT source {i + 1}</a>
+              ))}
+              {(match.ftSourceUrls ?? []).slice(0,2).map((url, i) => (
+                <a key={`ft-${url}-${i}`} href={url} target="_blank" rel="noreferrer">FT source {i + 1}</a>
               ))}
             </div>
           )}
