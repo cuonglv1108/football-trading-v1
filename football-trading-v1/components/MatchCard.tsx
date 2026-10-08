@@ -99,6 +99,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
               </div>
               {match.htAdvice && <p>{match.htAdvice}</p>}
               {match.htConfidence && <small>Confidence: {match.htConfidence}</small>}
+              {match.htEvaluationType && <small>Record type: {match.htEvaluationType.replace(/_/g, ' ')}</small>}
+              {match.h2GoalsAssessment && <small>H2 Goals: {match.h2GoalsAssessment.replace(/_/g, ' ')}</small>}
+              {match.h2CornersAssessment && <small>H2 Corners: {match.h2CornersAssessment.replace(/_/g, ' ')}</small>}
+              {match.htDataNote && <p className="htDataNote">{match.htDataNote}</p>}
               {(match.htMissingInputs ?? []).length > 0 && (
                 <small>Missing: {(match.htMissingInputs ?? []).join(', ')}</small>
               )}
