@@ -45,8 +45,8 @@ Away: ${match.away}
 Kickoff: ${match.kickoff}
 Pre-match total corners: ${match.prematchCornerLine}
 Pre-match Asian total goals: ${match.prematchGoalLine}
-Pre-match favourite: ${match.favourite}
-Pre-match handicap: ${match.handicap}
+Pre-match favourite: ${match.handicapVerified === false ? 'UNVERIFIED' : match.favourite}
+Pre-match handicap: ${match.handicapVerified === false ? 'UNVERIFIED' : match.handicap}
 
 Your job is ONLY to evaluate the H2 path using the user's exact V1 HT theory below. Do not introduce xG, possession models, form, expected corners, tipster methods, or any external betting system.
 
@@ -75,6 +75,7 @@ IMPORTANT DECISION RULES:
 - If verified HT corners > 5 -> action NO_ENTRY immediately.
 - If verified HT corners <= 5 AND verified HT score is 0-0 -> action H2_GOALS_AND_CORNERS immediately. Do NOT require favourite state or live H2 lines.
 - If HT corners <= 5 and score is not 0-0, then use favourite covering / favourite losing / FT Over clear to decide H2_CORNERS.
+- If pre-match handicap/favourite is marked UNVERIFIED, do NOT infer "favourite covering handicap" from it.
 - Return NEED_INPUT only when the verified HT score/corners are insufficient to determine any V1 rule.
 - IMPORTANT: even when action is NO_ENTRY, still evaluate the snapshot for research/history. Set evaluationType to V1_CANCEL_DATA, explain exactly why V1 cancelled, and mark H2 goals/corners as V1_SUPPORTED, V1_NOT_SUPPORTED, or UNRESOLVED based ONLY on the user's existing V1 rules. Do not invent a new betting system.
 - A NO_ENTRY snapshot is still valuable training data and must include dataNote.
