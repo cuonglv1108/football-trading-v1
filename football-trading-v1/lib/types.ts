@@ -1,6 +1,7 @@
 export type League = 'MLS' | 'Allsvenskan' | 'Liga MX' | 'Brazil Serie A';
 export type MatchState = 'QUALIFIED' | 'WATCHING' | 'TRIGGER' | 'CANCELLED';
 export type OutcomeGrade = 'PENDING' | 'FULL_WIN' | 'HALF_WIN' | 'PUSH' | 'HALF_LOSS' | 'FULL_LOSS' | 'UNRESOLVED';
+export type H2ExecutionAction = 'PLAY_GOALS_AND_CORNERS' | 'PLAY_GOALS' | 'PLAY_CORNERS' | 'VERIFY_GOAL_LINE' | 'VERIFY_CORNER_LINE' | 'VERIFY_GOAL_AND_CORNER_LINES' | 'NO_ENTRY' | 'WAIT_HT_DATA';
 
 export interface H2Prediction {
   market: 'H2_GOALS' | 'H2_CORNERS';
@@ -68,6 +69,9 @@ export interface TradingMatch {
   h2GoalsAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
   h2CornersAssessment?: 'V1_SUPPORTED' | 'V1_NOT_SUPPORTED' | 'UNRESOLVED';
   htDataNote?: string;
+  h2ExecutionAction?: H2ExecutionAction;
+  h2ExecutionText?: string;
+  h2ExecutionDetail?: string;
   htScoreHome?: number | null;
   htScoreAway?: number | null;
   htCornersHome?: number | null;
