@@ -5,6 +5,7 @@ import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
 import { League, SetupStats, TradingMatch } from '../lib/types';
 import { buildH2Predictions } from '../lib/outcomes';
+import { deriveH2Execution } from '../lib/h2Execution';
 
 const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 type View = 'SCANNER' | 'STARRED' | 'HISTORY';
@@ -351,6 +352,9 @@ export default function Home() {
         h2GoalsAssessment: data.h2GoalsAssessment,
         h2CornersAssessment: data.h2CornersAssessment,
         htDataNote: data.dataNote,
+        h2ExecutionAction: data.h2ExecutionAction,
+        h2ExecutionText: data.h2ExecutionText,
+        h2ExecutionDetail: data.h2ExecutionDetail,
         checkedAt: data.checkedAt ?? new Date().toISOString(),
       };
 
@@ -439,7 +443,14 @@ export default function Home() {
         htCornersAway: updated.cornersAway,
         researchPhase: 'HT',
       };
-      evaluated = { ...htBase, h2Predictions: buildH2Predictions(htBase) };
+      const execution = deriveH2Execution(htBase);
+      evaluated = {
+        ...htBase,
+        h2ExecutionAction: execution.action,
+        h2ExecutionText: execution.text,
+        h2ExecutionDetail: execution.detail,
+        h2Predictions: buildH2Predictions(htBase),
+      };
     }
 
     setMatches(matches.map(m => m.id === evaluated.id ? evaluated : m));
