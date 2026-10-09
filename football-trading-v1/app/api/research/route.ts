@@ -22,10 +22,11 @@ function combineResearch(rows: TradingMatch[]) {
     if (group.ft) {
       const ht = group.ht;
       const ft = group.ft;
-      const htScoreHome = ft.htScoreHome ?? ht?.htScoreHome ?? ht?.scoreHome ?? null;
-      const htScoreAway = ft.htScoreAway ?? ht?.htScoreAway ?? ht?.scoreAway ?? null;
-      const htCornersHome = ft.htCornersHome ?? ht?.htCornersHome ?? ht?.cornersHome ?? null;
-      const htCornersAway = ft.htCornersAway ?? ht?.htCornersAway ?? ht?.cornersAway ?? null;
+      const verifiedHt = ht && ht.htEvaluationType !== 'NEED_INPUT';
+      const htScoreHome = ft.htScoreHome ?? (verifiedHt ? ht?.htScoreHome ?? null : null);
+      const htScoreAway = ft.htScoreAway ?? (verifiedHt ? ht?.htScoreAway ?? null : null);
+      const htCornersHome = ft.htCornersHome ?? (verifiedHt ? ht?.htCornersHome ?? null : null);
+      const htCornersAway = ft.htCornersAway ?? (verifiedHt ? ht?.htCornersAway ?? null : null);
 
       const ftGoals = ft.ftScoreHome != null && ft.ftScoreAway != null
         ? ft.ftScoreHome + ft.ftScoreAway
