@@ -4,6 +4,7 @@ import path from 'path';
 import { TradingMatch } from '../../../lib/types';
 import { saveResearchBatch } from '../../../lib/researchStore';
 import { buildH2Predictions, gradeMatchPredictions } from '../../../lib/outcomes';
+import { deriveH2Execution } from '../../../lib/h2Execution';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -136,8 +137,12 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
     htDataNote: reason,
   };
 
+  const execution = deriveH2Execution(base);
   return {
     ...base,
+    h2ExecutionAction: execution.action,
+    h2ExecutionText: execution.text,
+    h2ExecutionDetail: execution.detail,
     h2Predictions: buildH2Predictions(base),
   };
 }
@@ -226,7 +231,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const phaseInstructions = phase === 'HT'
-      ? `For EVERY match, verify the actual halftime state. Return scoreHome, scoreAway, cornersHome, cornersAway, liveGoalLine if visible, liveCornerLine if visible, favouriteCoveringHandicap if verifiable, favouriteLosing if verifiable, ftGoalOverClear if clearly verifiable, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. Prioritize exact HT score/corners over optional live odds. Never guess. A red card is research context only; do not create a new V1 rule from it.`
+      ? `For EVERY match, verify the actual halftime state. Return scoreHome, scoreAway, cornersHome, cornersAway, liveGoalLine if visible, liveCornerLine if visible, favouriteCoveringHandicap if verifiable, favouriteLosing if verifiable, ftGoalOverClear if clearly verifiable, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. First verify exact HT score/corners. Then use the remaining search effort to obtain the exact H2 line(s) relevant to V1: if HT is 0-0 with corners <=5, find BOTH H2 goals and H2 corners lines; if the corner-only V1 condition applies, prioritize the H2 corner line. Missing lines must be named specifically in missingInputs. Never guess. A red card is research context only; do not create a new V1 rule from it.`
       : `For EVERY match, verify the FINAL full-time state. Return scoreHome, scoreAway, cornersHome, cornersAway, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. If needsHtRecovery=true, ALSO recover the official/archived halftime score and first-half corner counts as htScoreHome, htScoreAway, htCornersHome, htCornersAway when publicly verifiable. Do this within the same searches; do not spend a separate search merely for recovery. Never guess. Prefer official/live-score/stat pages.`;
 
     const prompt = `You are a low-cost batch data collector for a private football V1 research app.
