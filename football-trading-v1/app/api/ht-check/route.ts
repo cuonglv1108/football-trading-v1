@@ -61,8 +61,8 @@ V1 HT rules:
    -> H2 OVER CORNERS
 5) If HT total corners > 5:
    -> NO V1 ENTRY / CANCEL for this setup.
-6) Relevant H2 goal line range: 1.25 to 2.0
-7) Relevant H2 corner line: 8.5 or higher
+6) Relevant H2 goal line range currently tracked: 1.25 to 2.0
+7) H2 corner line is CONTEXTUAL, not a fixed 8.5+ requirement. When HT has only 2-3 corners, an H2 corner line around 7-8 can be completely normal and can still qualify if the V1 trigger conditions are aligned. Record the exact H2 corner line, but do NOT reject a valid V1 corner setup only because the line is below 8.5.
 
 Use web search to verify the LIVE/HT state of this exact match. PRIORITY ORDER:
 1) Verify that the match is actually at halftime (HT, halftime, interval, or 45'+ with the first half ended).
