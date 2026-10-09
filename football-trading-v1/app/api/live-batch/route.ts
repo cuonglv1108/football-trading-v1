@@ -105,7 +105,7 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
   const checkedAt = new Date().toISOString();
   const base: TradingMatch = {
     ...match,
-    status: 'HT',
+    status: htEvaluationType === 'NEED_INPUT' ? match.status : 'HT',
     scoreHome: scoreHome ?? match.scoreHome,
     scoreAway: scoreAway ?? match.scoreAway,
     cornersHome: cornersHome ?? match.cornersHome,
@@ -127,9 +127,9 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
     htMissingInputs: Array.isArray(row.missingInputs) ? row.missingInputs : [],
     htSourceSummary: typeof row.sourceSummary === 'string' ? row.sourceSummary : 'HT batch web verification',
     htSourceUrls: Array.isArray(row.sourceUrls) ? row.sourceUrls.filter((x: unknown) => typeof x === 'string') : [],
-    htCheckedAt: checkedAt,
+    htCheckedAt: htEvaluationType === 'NEED_INPUT' ? null : checkedAt,
     checkedAt,
-    researchPhase: 'HT',
+    researchPhase: htEvaluationType === 'NEED_INPUT' ? undefined : 'HT',
     htEvaluationType,
     h2GoalsAssessment,
     h2CornersAssessment,
@@ -148,10 +148,15 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const ftCornersHome = Number.isFinite(Number(row.cornersHome)) ? Number(row.cornersHome) : null;
   const ftCornersAway = Number.isFinite(Number(row.cornersAway)) ? Number(row.cornersAway) : null;
 
-  const htGoals = match.htScoreHome != null && match.htScoreAway != null
-    ? match.htScoreHome + match.htScoreAway : null;
-  const htCorners = match.htCornersHome != null && match.htCornersAway != null
-    ? match.htCornersHome + match.htCornersAway : null;
+  const recoveredHtScoreHome = match.htScoreHome ?? (Number.isFinite(Number(row.htScoreHome)) ? Number(row.htScoreHome) : null);
+  const recoveredHtScoreAway = match.htScoreAway ?? (Number.isFinite(Number(row.htScoreAway)) ? Number(row.htScoreAway) : null);
+  const recoveredHtCornersHome = match.htCornersHome ?? (Number.isFinite(Number(row.htCornersHome)) ? Number(row.htCornersHome) : null);
+  const recoveredHtCornersAway = match.htCornersAway ?? (Number.isFinite(Number(row.htCornersAway)) ? Number(row.htCornersAway) : null);
+
+  const htGoals = recoveredHtScoreHome != null && recoveredHtScoreAway != null
+    ? recoveredHtScoreHome + recoveredHtScoreAway : null;
+  const htCorners = recoveredHtCornersHome != null && recoveredHtCornersAway != null
+    ? recoveredHtCornersHome + recoveredHtCornersAway : null;
   const ftGoals = ftScoreHome != null && ftScoreAway != null ? ftScoreHome + ftScoreAway : null;
   const ftCorners = ftCornersHome != null && ftCornersAway != null ? ftCornersHome + ftCornersAway : null;
 
@@ -170,6 +175,10 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
     ftScoreAway,
     ftCornersHome,
     ftCornersAway,
+    htScoreHome: recoveredHtScoreHome,
+    htScoreAway: recoveredHtScoreAway,
+    htCornersHome: recoveredHtCornersHome,
+    htCornersAway: recoveredHtCornersAway,
     redCardsHome: Number.isFinite(Number(row.redCardsHome)) ? Number(row.redCardsHome) : (match.redCardsHome ?? 0),
     redCardsAway: Number.isFinite(Number(row.redCardsAway)) ? Number(row.redCardsAway) : (match.redCardsAway ?? 0),
     h2ActualGoals,
@@ -213,11 +222,12 @@ export async function POST(req: NextRequest) {
       favourite: m.handicapVerified === false ? null : m.favourite,
       handicap: m.handicapVerified === false ? null : m.handicap,
       handicapVerified: m.handicapVerified !== false,
+      needsHtRecovery: !m.htCheckedAt || m.htEvaluationType === 'NEED_INPUT',
     }));
 
     const phaseInstructions = phase === 'HT'
       ? `For EVERY match, verify the actual halftime state. Return scoreHome, scoreAway, cornersHome, cornersAway, liveGoalLine if visible, liveCornerLine if visible, favouriteCoveringHandicap if verifiable, favouriteLosing if verifiable, ftGoalOverClear if clearly verifiable, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. Prioritize exact HT score/corners over optional live odds. Never guess. A red card is research context only; do not create a new V1 rule from it.`
-      : `For EVERY match, verify the FINAL full-time state. Return scoreHome, scoreAway, cornersHome, cornersAway, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. Never guess. Prefer official/live-score/stat pages.`;
+      : `For EVERY match, verify the FINAL full-time state. Return scoreHome, scoreAway, cornersHome, cornersAway, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. If needsHtRecovery=true, ALSO recover the official/archived halftime score and first-half corner counts as htScoreHome, htScoreAway, htCornersHome, htCornersAway when publicly verifiable. Do this within the same searches; do not spend a separate search merely for recovery. Never guess. Prefer official/live-score/stat pages.`;
 
     const prompt = `You are a low-cost batch data collector for a private football V1 research app.
 Do NOT invent betting logic. Your only job is to collect verified match data for multiple fixtures in as few web searches as possible.
@@ -245,6 +255,10 @@ Return valid JSON only:
       "ftGoalOverClear": boolean|null,
       "redCardsHome": number|null,
       "redCardsAway": number|null,
+      "htScoreHome": number|null,
+      "htScoreAway": number|null,
+      "htCornersHome": number|null,
+      "htCornersAway": number|null,
       "missingInputs": [],
       "sourceSummary": "short",
       "sourceUrls": ["https://..."]
@@ -288,7 +302,10 @@ Include one row for every supplied id even when some fields are null.`;
       return phase === 'HT' ? htEvaluate(match, row) : ftEvaluate(match, row);
     });
 
-    await saveResearchBatch(results);
+    const persistable = phase === 'HT'
+      ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
+      : results;
+    await saveResearchBatch(persistable);
 
     return NextResponse.json({
       providerStatus: 'CONNECTED',
