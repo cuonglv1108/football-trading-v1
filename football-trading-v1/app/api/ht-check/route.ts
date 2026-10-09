@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { deriveH2Execution } from '../../../lib/h2Execution';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,10 +69,16 @@ Use web search to verify the LIVE/HT state of this exact match. PRIORITY ORDER:
 1) Verify that the match is actually at halftime (HT, halftime, interval, or 45'+ with the first half ended).
 2) Verify the HT score.
 3) Verify HT corners for both teams.
-4) Only after that, look for current H2 goal/corner lines and favourite state if needed.
+4) After HT score/corners are verified, determine which H2 market(s) V1 points to.
+5) THEN actively search for the exact current H2 line(s) required for execution:
+   - If V1 points to H2 CORNERS only, prioritize finding the H2 corner line.
+   - If V1 points to H2 GOALS + CORNERS, prioritize finding BOTH H2 goal and H2 corner lines.
+   - Search terms should include the exact teams plus "2nd half", "H2", "second half total goals", "second half corners", "live odds", "Bet365" where useful.
+   - Do not waste searches on an H2 market that V1 does not recommend.
 
 IMPORTANT DECISION RULES:
-- H2 live lines are OPTIONAL for deciding the V1 action. They help execution, but missing H2 lines must NOT force NEED_INPUT if the HT score/corners already trigger a V1 rule.
+- H2 live lines are NOT required to decide whether V1 triggers, but they ARE required for exact execution and later grading.
+- If V1 triggers but a required H2 line cannot be verified, still return the V1 action. Put the exact missing line in missingInputs. The server will turn this into a simple execution instruction such as VERIFY H2 CORNER LINE or VERIFY H2 GOAL LINE.
 - If verified HT corners > 5 -> action NO_ENTRY immediately.
 - If verified HT corners <= 5 AND verified HT score is 0-0 -> action H2_GOALS_AND_CORNERS immediately. Do NOT require favourite state or live H2 lines.
 - If HT corners <= 5 and score is not 0-0, then use favourite covering / favourite losing / FT Over clear to decide H2_CORNERS.
@@ -127,10 +134,19 @@ Return ONLY valid JSON:
     if (!res.ok) throw new Error(raw?.error?.message || `OpenAI HTTP ${res.status}`);
 
     const parsed = parseJson(extractText(raw));
+    const execution = deriveH2Execution({
+      htAction: parsed.action,
+      liveGoalLine: Number.isFinite(Number(parsed.liveGoalLine)) ? Number(parsed.liveGoalLine) : null,
+      liveCornerLine: Number.isFinite(Number(parsed.liveCornerLine)) ? Number(parsed.liveCornerLine) : null,
+    } as any);
+
     return NextResponse.json({
       providerStatus: 'CONNECTED',
       checkedAt: new Date().toISOString(),
       ...parsed,
+      h2ExecutionAction: execution.action,
+      h2ExecutionText: execution.text,
+      h2ExecutionDetail: execution.detail,
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
     console.error('GPT HT check error', error);
