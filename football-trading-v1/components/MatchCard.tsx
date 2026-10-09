@@ -17,6 +17,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const totalCorners = match.cornersHome + match.cornersAway;
   const probability = match.winProbability ?? 0;
   const [expanded, setExpanded] = useState(false);
+  const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
+  const handicapText = match.handicapVerified === false
+    ? '—'
+    : `${favouriteName} ${match.handicap > 0 ? '+' : ''}${match.handicap}`;
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
@@ -60,6 +64,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div><span>Corners</span><b>{match.cornersHome}-{match.cornersAway} ({totalCorners})</b></div>
             <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
             <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
+            <div><span>FT handicap</span><b>{handicapText}</b></div>
           </div>
 
           {match.sourceSummary && (
