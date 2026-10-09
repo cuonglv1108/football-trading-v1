@@ -218,6 +218,11 @@ A match qualifies only when BOTH are verified:
 1) Full-time total corners line >= 10.0
 2) Full-time Asian total goals line >= 2.75
 
+CONTEXT TO SAVE WITH EVERY QUALIFIED MATCH
+- Also capture the pre-match FT Asian handicap and which team is the favourite when visible from the SAME source/page.
+- The handicap is NOT a qualification filter. It is context needed later at HT.
+- Do NOT spend an extra web search only to find handicap. If it is not visible while verifying the two required V1 markets, return favourite=null and handicap=null rather than guessing.
+
 ACCURACY + COST PRIORITY
 The biggest failures to avoid are (1) silently missing a qualifying match and (2) wasting web calls.
 
@@ -228,7 +233,7 @@ A. Start with these four exact TotalCorner league pages because each page can ex
    - Liga MX: https://www.totalcorner.com/league/view/779
    - Brazil Serie A: https://www.totalcorner.com/league/view/129
 B. Use one league-page search/open attempt per league first. Read all fixtures inside START..END, including rows that fail V1.
-C. TotalCorner table meaning: "Asian Corn." is the FT total-corners line; "Goals" is the Asian FT total-goals line. A comma split such as "2.5, 3.0" means 2.75; "3.0, 3.5" means 3.25; similarly for quarter corner lines.
+C. TotalCorner table meaning: "Asian Corn." is the FT total-corners line; "Goals" is the Asian FT total-goals line. A comma split such as "2.5, 3.0" means 2.75; "3.0, 3.5" means 3.25; similarly for quarter corner lines. If the same row/page also shows the Asian handicap, capture that exact handicap and favourite without additional searching.
 D. Only use remaining web calls for fixtures whose kickoff or one required line is unclear. Batch unresolved fixtures together rather than one search per match.
 E. Prefer the exact league page/table value. A different reputable source may be used only to fill a genuinely missing field.
 F. Keep a COMPACT audit row for every fixture discovered inside the 72-hour window. Do not add prose to audit rows.
@@ -254,6 +259,8 @@ Return VALID JSON ONLY:
       "status": "QUALIFIED|NOT_QUALIFIED|UNVERIFIED",
       "cornerLine": 10.0,
       "goalLine": 2.75,
+      "favourite": "HOME|AWAY|null",
+      "handicap": -0.75,
       "missing": [],
       "sourceUrls": ["https://..."]
     }
@@ -266,7 +273,7 @@ Return VALID JSON ONLY:
       "kickoff": "ISO 8601 string",
       "cornerLine": 10.0,
       "goalLine": 2.75,
-      "favourite": "HOME|AWAY",
+      "favourite": "HOME|AWAY|null",
       "handicap": -0.75,
       "sourceSummary": "short verification summary",
       "sourceUrls": ["https://..."]
@@ -394,6 +401,11 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
         const safeKickoff = typeof m.kickoff === 'string' ? m.kickoff : null;
         const stableKey = [m.league, m.home, m.away, safeKickoff ?? 'tbd']
           .join('-').replace(/\W+/g, '-').toLowerCase();
+        const handicapVerified =
+          (m.favourite === 'HOME' || m.favourite === 'AWAY') &&
+          m.handicap !== null &&
+          Number.isFinite(Number(m.handicap));
+
         const base: TradingMatch = {
           id: `gpt-${stableKey}`,
           league: m.league,
@@ -409,7 +421,8 @@ The matches array MUST contain every audit row marked QUALIFIED, and no other ro
           prematchCornerLine: Number(m.cornerLine),
           prematchGoalLine: Number(m.goalLine),
           favourite: m.favourite === 'AWAY' ? 'AWAY' : 'HOME',
-          handicap: Number.isFinite(Number(m.handicap)) ? Number(m.handicap) : 0,
+          handicap: handicapVerified ? Number(m.handicap) : 0,
+          handicapVerified,
           favouriteCoveringHandicap: false,
           favouriteLosing: false,
           ftGoalOverClear: false,
