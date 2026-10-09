@@ -56,12 +56,10 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
       direction: 'OVER',
       line: cornerLine,
       setupKey: 'HT_00_CORNERS_LE5_CORNERS',
-      active: cornerLine != null && cornerLine >= 8.5,
+      active: cornerLine != null,
       note: cornerLine == null
         ? 'V1 corner setup triggered; exact H2 corner line was not verified.'
-        : cornerLine >= 8.5
-          ? `V1 H2 Corners Over ${cornerLine}`
-          : `Corner setup triggered, but H2 line ${cornerLine} is below V1 range 8.5+.`,
+        : `V1 H2 Corners Over ${cornerLine}. H2 corner line is contextual, not a fixed 8.5+ gate.`,
       grade: 'PENDING',
     });
   } else if (match.htAction === 'H2_CORNERS') {
@@ -78,12 +76,10 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
       direction: 'OVER',
       line: cornerLine,
       setupKey,
-      active: cornerLine != null && cornerLine >= 8.5,
+      active: cornerLine != null,
       note: cornerLine == null
         ? 'V1 corner setup triggered; exact H2 corner line was not verified.'
-        : cornerLine >= 8.5
-          ? `V1 H2 Corners Over ${cornerLine}`
-          : `Corner setup triggered, but H2 line ${cornerLine} is below V1 range 8.5+.`,
+        : `V1 H2 Corners Over ${cornerLine}. H2 corner line is contextual, not a fixed 8.5+ gate.`,
       grade: 'PENDING',
     });
   } else if (match.htAction === 'NO_ENTRY') {
