@@ -99,7 +99,7 @@ export default function Home() {
   function dueForPhase(match: TradingMatch, phase: 'HT' | 'FT') {
     if (!match.kickoff) return false;
     const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
-    if (phase === 'HT') return elapsed >= 43 && elapsed <= 85 && !match.htCheckedAt;
+    if (phase === 'HT') return elapsed >= 48 && elapsed <= 85 && !match.htCheckedAt;
     return elapsed >= 105 && match.status !== 'FT';
   }
 
@@ -141,7 +141,10 @@ export default function Home() {
       });
       setMatches(prev => prev.map(m => byId.get(m.id) ?? m));
       setHistory(prev => {
-        const merged = [...results, ...prev];
+        const historyResults = phase === 'HT'
+          ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
+          : results;
+        const merged = [...historyResults, ...prev];
         const deduped = Array.from(new Map(merged.map(m => [`${m.id}-${m.researchPhase ?? m.status}`, m])).values()).slice(0, 500);
         localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
         return deduped;
@@ -316,6 +319,11 @@ export default function Home() {
         return;
       }
 
+      if (data.action === 'NEED_INPUT' || data.evaluationType === 'NEED_INPUT') {
+        setNotice('HT source has not confirmed the interval yet. Match stays pending — retry in a few minutes; this attempt will NOT be marked as completed HT.');
+        return;
+      }
+
       const baseUpdated: TradingMatch = {
         ...match,
         status: 'HT',
@@ -394,11 +402,50 @@ export default function Home() {
       checkedAt: new Date().toISOString(),
     };
 
-    const evaluated = { ...updated, ...evaluateV1(updated) };
+    const baseEvaluated = { ...updated, ...evaluateV1(updated) };
+    let evaluated: TradingMatch = baseEvaluated;
+
+    if (updated.status === 'HT') {
+      const totalHtCorners = updated.cornersHome + updated.cornersAway;
+      const is00 = updated.scoreHome === 0 && updated.scoreAway === 0;
+      const cornerTrigger = updated.favouriteCoveringHandicap || updated.favouriteLosing || updated.ftGoalOverClear;
+      const htAction: TradingMatch['htAction'] =
+        totalHtCorners > 5 ? 'NO_ENTRY'
+          : is00 ? 'H2_GOALS_AND_CORNERS'
+            : cornerTrigger ? 'H2_CORNERS'
+              : 'NO_ENTRY';
+      const htEvaluationType: TradingMatch['htEvaluationType'] =
+        htAction === 'NO_ENTRY' ? 'V1_CANCEL_DATA' : 'V1_TRIGGER';
+
+      const htBase: TradingMatch = {
+        ...baseEvaluated,
+        htAction,
+        htEvaluationType,
+        h2GoalsAssessment: htAction === 'H2_GOALS_AND_CORNERS' ? 'V1_SUPPORTED' : 'V1_NOT_SUPPORTED',
+        h2CornersAssessment: htAction === 'H2_GOALS_AND_CORNERS' || htAction === 'H2_CORNERS' ? 'V1_SUPPORTED' : 'V1_NOT_SUPPORTED',
+        htAdvice: totalHtCorners > 5
+          ? `V1 cancelled: HT corners ${totalHtCorners} > 5.`
+          : htAction === 'H2_GOALS_AND_CORNERS'
+            ? `V1 trigger: HT 0-0 and corners ${totalHtCorners} <= 5 -> H2 Goals + H2 Corners.`
+            : htAction === 'H2_CORNERS'
+              ? `V1 trigger: HT corners ${totalHtCorners} <= 5 plus aligned favourite/FT-goals condition -> H2 Corners.`
+              : `No V1 trigger: HT corners ${totalHtCorners} <= 5 but the remaining V1 conditions are not aligned.`,
+        htConfidence: 'HIGH',
+        htMissingInputs: [],
+        htCheckedAt: updated.checkedAt,
+        htScoreHome: updated.scoreHome,
+        htScoreAway: updated.scoreAway,
+        htCornersHome: updated.cornersHome,
+        htCornersAway: updated.cornersAway,
+        researchPhase: 'HT',
+      };
+      evaluated = { ...htBase, h2Predictions: buildH2Predictions(htBase) };
+    }
+
     setMatches(matches.map(m => m.id === evaluated.id ? evaluated : m));
     saveStarred(starred.map(m => m.id === evaluated.id ? evaluated : m));
     saveHistory([evaluated, ...history]);
-    void persistResearch({ ...evaluated, researchPhase: 'MANUAL' });
+    void persistResearch({ ...evaluated, researchPhase: evaluated.status === 'HT' ? 'HT' : 'MANUAL' });
 
     if (evaluated.state === 'TRIGGER' && 'Notification' in window && Notification.permission === 'granted') {
       new Notification(`V1 TRIGGER — ${evaluated.home} vs ${evaluated.away}`, {
