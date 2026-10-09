@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { TradingMatch } from '../lib/types';
+import { deriveH2Execution } from '../lib/h2Execution';
 
 type Props = {
   match: TradingMatch;
@@ -21,6 +22,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const handicapText = match.handicapVerified === false
     ? '—'
     : `${favouriteName} ${match.handicap > 0 ? '+' : ''}${match.handicap}`;
+  const execution = match.htAction ? deriveH2Execution(match) : null;
+  const executionText = match.h2ExecutionText ?? execution?.text;
+  const executionDetail = match.h2ExecutionDetail ?? execution?.detail;
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
@@ -51,6 +55,19 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         <div className="kickoff">
           {new Date(match.kickoff).toLocaleString()}
           {match.checkedAt ? ` · checked ${new Date(match.checkedAt).toLocaleTimeString()}` : ''}
+        </div>
+      )}
+
+      {executionText && (
+        <div className="htAdvice">
+          <div className="htAdviceTop">
+            <span>H2 NEXT STEP</span>
+            <b>{executionText}</b>
+          </div>
+          {executionDetail && <p>{executionDetail}</p>}
+          {(match.liveGoalLine != null || match.liveCornerLine != null) && (
+            <small>H2 lines · Goals {match.liveGoalLine ?? '—'} · Corners {match.liveCornerLine ?? '—'}</small>
+          )}
         </div>
       )}
 
