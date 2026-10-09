@@ -210,7 +210,9 @@ export async function POST(req: NextRequest) {
     const maxCalls = Math.min(remaining, phase === 'HT' ? MAX_HT_WEB_CALLS : MAX_FT_WEB_CALLS);
     const compact = matches.map(m => ({
       id: m.id, league: m.league, home: m.home, away: m.away, kickoff: m.kickoff,
-      favourite: m.favourite, handicap: m.handicap,
+      favourite: m.handicapVerified === false ? null : m.favourite,
+      handicap: m.handicapVerified === false ? null : m.handicap,
+      handicapVerified: m.handicapVerified !== false,
     }));
 
     const phaseInstructions = phase === 'HT'
