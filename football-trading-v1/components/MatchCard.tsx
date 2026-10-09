@@ -111,7 +111,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                     ? `H2 goals produced ${match.h2ActualGoals}. ${match.h2ActualGoals >= 2 ? 'This was strong H2 goal activity, but exact WIN/PUSH depends on the HT line.' : match.h2ActualGoals === 1 ? 'Some lower H2 goal lines may have won/pushed; exact grade depends on the HT line.' : 'No H2 goals were scored.'}`
                     : ''}
                   {match.h2ActualCorners != null
-                    ? ` H2 corners produced ${match.h2ActualCorners}. ${match.h2ActualCorners >= 9 ? 'This cleared 8.5, but exact grading still depends on the saved HT corner line.' : 'This did not clear 8.5.'}`
+                    ? ` H2 corners produced ${match.h2ActualCorners}. Exact outcome depends on the H2 corner line saved at HT.`
                     : ''}
                 </small>
               )}
