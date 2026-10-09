@@ -43,6 +43,7 @@ export interface TradingMatch {
   prematchGoalLine: number;
   favourite: 'HOME' | 'AWAY';
   handicap: number;
+  handicapVerified?: boolean;
   favouriteCoveringHandicap: boolean;
   favouriteLosing: boolean;
   ftGoalOverClear: boolean;
