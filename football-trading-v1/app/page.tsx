@@ -153,7 +153,7 @@ export default function Home() {
   function dueForPhase(match: TradingMatch, phase: 'HT' | 'FT') {
     if (!match.kickoff) return false;
     const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
-    if (phase === 'HT') return elapsed >= 48 && elapsed <= 85 && !match.htCheckedAt;
+    if (phase === 'HT') return elapsed >= 43 && elapsed <= 85 && match.htVerified !== true;
     return elapsed >= 105 && elapsed <= 72 * 60 && match.ftVerified !== true && match.status !== 'FT';
   }
 
@@ -200,7 +200,7 @@ export default function Home() {
       setMatches(prev => prev.map(m => byId.get(m.id) ?? m));
       setHistory(prev => {
         const historyResults = phase === 'HT'
-          ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
+          ? results.filter(m => m.htVerified === true)
           : results.filter(m => m.status === 'FT' && m.ftVerified === true);
         const completed = new Set(historyResults.filter(m => m.status === 'FT' && m.ftVerified).map(m => m.id));
         const merged = [...historyResults, ...prev.filter(m => !(completed.has(m.id) && m.watchStatus === 'EXPIRED_UNVERIFIED'))];
@@ -216,7 +216,7 @@ export default function Home() {
         setNotice(`FT Batch · ${verified} verified · ${pending} pending · ${data.providerRequests ?? 0} fixture API requests · 0 GPT web searches${reason ? ' · ' + reason : ''}`);
         void loadSharedResearch();
       } else {
-        setNotice(`HT Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · estimated ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`);
+        setNotice(`HT Batch · ${results.filter(m => m.htVerified === true).length} source-verified · ${results.filter(m => m.htVerified !== true).length} pending · 0 GPT web searches`);
       }
     } catch {
       setNotice(`${phase} Batch failed. Saved data was not overwritten.`);
@@ -364,7 +364,7 @@ export default function Home() {
 
   async function runHtCheck(match: TradingMatch) {
     setHtLoadingId(match.id);
-    setNotice(`GPT is checking HT · ${match.home} vs ${match.away}`);
+    setNotice(`Verifying HT with fixture statistics · ${match.home} vs ${match.away}`);
     try {
       const res = await fetch('/api/ht-check', {
         method: 'POST',
@@ -378,11 +378,11 @@ export default function Home() {
         return;
       }
       if (data.providerStatus !== 'CONNECTED') {
-        setNotice(data.advice || 'HT Check failed. Try again.');
+        setNotice(data.advice || 'HT source unavailable. No automatic H2 recommendation was issued.');
         return;
       }
 
-      if (data.action === 'NEED_INPUT' || data.evaluationType === 'NEED_INPUT') {
+      if (data.htVerified !== true || data.htSourceType !== 'API_FOOTBALL' || data.action === 'NEED_INPUT' || data.evaluationType === 'NEED_INPUT') {
         setNotice('HT source has not confirmed the interval yet. Match stays pending — retry in a few minutes; this attempt will NOT be marked as completed HT.');
         return;
       }
@@ -400,6 +400,8 @@ export default function Home() {
         favouriteLosing: data.favouriteLosing ?? false,
         ftGoalOverClear: data.ftGoalOverClear ?? false,
         htAction: data.action,
+        htVerified: true,
+        htSourceType: 'API_FOOTBALL',
         htAdvice: data.reason,
         htConfidence: data.confidence,
         htMissingInputs: Array.isArray(data.missingInputs) ? data.missingInputs : [],
@@ -451,6 +453,16 @@ export default function Home() {
     e.preventDefault();
     if (!checkpoint) return;
     const fd = new FormData(e.currentTarget);
+    const isHt = fd.get('status') === 'HT';
+    const required = ['scoreHome', 'scoreAway', 'cornersHome', 'cornersAway'];
+    if (isHt && required.some(name => {
+      const raw = fd.get(name);
+      return typeof raw !== 'string' || raw.trim() === '' ||
+        !Number.isInteger(Number(raw)) || Number(raw) < 0;
+    })) {
+      setNotice('Manual HT check needs both scores and BOTH team corner counts. Empty is not zero.');
+      return;
+    }
 
     const updated: TradingMatch = {
       ...checkpoint,
@@ -496,7 +508,11 @@ export default function Home() {
             : htAction === 'H2_CORNERS'
               ? `V1 trigger: HT corners ${totalHtCorners} <= 5 plus aligned favourite/FT-goals condition -> H2 Corners.`
               : `No V1 trigger: HT corners ${totalHtCorners} <= 5 but the remaining V1 conditions are not aligned.`,
-        htConfidence: 'HIGH',
+        htConfidence: 'LOW',
+        htVerified: false,
+        htSourceType: 'MANUAL',
+        htSourceSummary: 'Manually entered HT data; not independently verified',
+        htSourceUrls: [],
         htMissingInputs: [],
         htCheckedAt: updated.checkedAt,
         htScoreHome: updated.scoreHome,
@@ -696,10 +712,10 @@ export default function Home() {
                 <option value="FT">FT</option>
               </select>
               <input name="minute" type="number" placeholder="Minute" defaultValue={checkpoint.minute ?? 45} />
-              <input name="scoreHome" type="number" min="0" placeholder="Home goals" defaultValue={checkpoint.scoreHome} />
-              <input name="scoreAway" type="number" min="0" placeholder="Away goals" defaultValue={checkpoint.scoreAway} />
-              <input name="cornersHome" type="number" min="0" placeholder="Home corners" defaultValue={checkpoint.cornersHome} />
-              <input name="cornersAway" type="number" min="0" placeholder="Away corners" defaultValue={checkpoint.cornersAway} />
+              <input name="scoreHome" type="number" min="0" required placeholder="Home goals (required)" defaultValue={checkpoint.htCheckedAt || checkpoint.htSourceType === 'MANUAL' ? checkpoint.scoreHome : ''} />
+              <input name="scoreAway" type="number" min="0" required placeholder="Away goals (required)" defaultValue={checkpoint.htCheckedAt || checkpoint.htSourceType === 'MANUAL' ? checkpoint.scoreAway : ''} />
+              <input name="cornersHome" type="number" min="0" required placeholder="Home corners (required)" defaultValue={checkpoint.htSourceType === 'MANUAL' ? checkpoint.cornersHome : ''} />
+              <input name="cornersAway" type="number" min="0" required placeholder="Away corners (required)" defaultValue={checkpoint.htSourceType === 'MANUAL' ? checkpoint.cornersAway : ''} />
               <input name="liveCornerLine" type="number" step="0.25" placeholder="365 live corner line" defaultValue={checkpoint.liveCornerLine ?? ''} />
               <input name="liveGoalLine" type="number" step="0.25" placeholder="365 live goal line" defaultValue={checkpoint.liveGoalLine ?? ''} />
             </div>
@@ -711,7 +727,7 @@ export default function Home() {
             </div>
 
             <button className="primaryBtn" type="submit">Evaluate V1 snapshot</button>
-            <p className="formHint">At the checkpoint, enter only the current Bet365 snapshot. The app recalculates V1 and saves it to History.</p>
+            <p className="formHint">Manual data are NOT independently verified. Enter exact HT scores and corners from your sportsbook; leave missing H2 lines blank (never 0). V1 results will be marked MANUAL.</p>
           </form>
         </div>
       )}

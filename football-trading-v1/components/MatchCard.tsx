@@ -24,9 +24,17 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
     : `${favouriteName} ${match.handicap > 0 ? '+' : ''}${match.handicap}`;
   const reliableFt = match.researchPhase === 'FT' && match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
-  const execution = match.htAction ? deriveH2Execution(match) : null;
-  const executionText = match.h2ExecutionText ?? execution?.text;
-  const executionDetail = match.h2ExecutionDetail ?? execution?.detail;
+  const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
+  const manualHt = match.htSourceType === 'MANUAL';
+  const unverifiedHt = Boolean(match.htAction) && !verifiedHt && !manualHt;
+  const execution = match.htAction && verifiedHt ? deriveH2Execution(match) : null;
+  const executionText = unverifiedHt ? 'UNVERIFIED HT · NO AUTOMATIC ENTRY'
+    : manualHt ? (match.htAction === 'NO_ENTRY' ? 'NO ENTRY · MANUAL HT' : 'MANUAL HT · VERIFY BEFORE ENTRY')
+    : (execution?.text ?? match.h2ExecutionText);
+  const executionDetail = unverifiedHt
+    ? 'Previous GPT-search HT corners and H2 lines were not verified against a fixture/statistics provider. This signal is disabled.'
+    : manualHt ? 'User-entered figures, not independently verified. Check halftime corners and H2 odds with the sportsbook.'
+    : (execution?.detail ?? match.h2ExecutionDetail);
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
@@ -49,7 +57,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
       <div className="teams">
         <strong>{match.home}</strong>
-        <span>{match.scoreHome} - {match.scoreAway}</span>
+        <span>{unverifiedHt ? '— - —' : `${match.scoreHome} - ${match.scoreAway}`}</span>
         <strong>{match.away}</strong>
       </div>
 
@@ -72,6 +80,12 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
           <p>Old web-search FT records are retained for audit, not graded as verified outcomes.</p>
         </div>
       )}
+      {unverifiedHt && (
+        <div className="htAdvice">
+          <b>OLD HT SNAPSHOT IS UNVERIFIED</b>
+          <p>Legacy corners and odds were not source-verified. The previous V1 H2 recommendation has been withdrawn.</p>
+        </div>
+      )}
       {executionText && (
         <div className="htAdvice">
           <div className="htAdviceTop">
@@ -79,7 +93,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <b>{executionText}</b>
           </div>
           {executionDetail && <p>{executionDetail}</p>}
-          {(match.liveGoalLine != null || match.liveCornerLine != null) && (
+          {!unverifiedHt && (match.liveGoalLine != null || match.liveCornerLine != null) && (
             <small>H2 lines · Goals {match.liveGoalLine ?? '—'} · Corners {match.liveCornerLine ?? '—'}</small>
           )}
         </div>
@@ -92,7 +106,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
       {expanded && (
         <>
           <div className="metrics">
-            <div><span>Corners</span><b>{match.cornersHome}-{match.cornersAway} ({totalCorners})</b></div>
+            <div><span>Corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
             <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
             <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
             <div><span>FT handicap</span><b>{handicapText}</b></div>
@@ -100,7 +114,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {match.sourceSummary && (
             <div className="sourceBox">
-              <span>Source</span>
+              <span>Pre-match odds source (not HT)</span>
               <b>{match.sourceSummary}</b>
               {(match.sourceUrls ?? []).slice(0, 2).map((url, i) => (
                 <a key={url + i} href={url} target="_blank" rel="noreferrer">Open source {i + 1}</a>
@@ -108,7 +122,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
-          {(match.liveCornerLine || match.liveGoalLine) && (
+          {!unverifiedHt && (match.liveCornerLine != null || match.liveGoalLine != null) && (
             <div className="liveLines">
               <span>365 snapshot</span>
               <b>C {match.liveCornerLine ?? '—'} · G {match.liveGoalLine ?? '—'}</b>
@@ -125,7 +139,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           </div>
 
-          {(match.redCardsHome != null || match.redCardsAway != null) && (
+          {!unverifiedHt && (match.redCardsHome != null || match.redCardsAway != null) && (
             <div className="liveLines">
               <span>Red cards</span>
               <b>{match.redCardsHome ?? 0} - {match.redCardsAway ?? 0}</b>
@@ -149,7 +163,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
-          {(match.h2Predictions ?? []).length > 0 && (
+          {!unverifiedHt && (match.h2Predictions ?? []).length > 0 && (
             <div className="htAdvice">
               <div className="htAdviceTop">
                 <span>H2 RESEARCH RECORD</span>
@@ -177,16 +191,21 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {match.htAction && (
             <div className="htAdvice">
+              {(verifiedHt || manualHt) && (
+                <small>HT source: {match.htSourceSummary ?? (manualHt ? 'MANUAL INPUT' : 'API-Football')}</small>
+              )}
               <div className="htAdviceTop">
                 <span>HT DECISION</span>
-                <b>{match.htAction.replace(/_/g, ' ')}</b>
+                <b>{unverifiedHt ? 'UNVERIFIED · DISABLED' : match.htAction.replace(/_/g, ' ')}</b>
               </div>
-              {match.htAdvice && <p>{match.htAdvice}</p>}
-              {match.htConfidence && <small>Confidence: {match.htConfidence}</small>}
-              {match.htEvaluationType && <small>Record type: {match.htEvaluationType.replace(/_/g, ' ')}</small>}
-              {match.h2GoalsAssessment && <small>H2 Goals: {match.h2GoalsAssessment.replace(/_/g, ' ')}</small>}
-              {match.h2CornersAssessment && <small>H2 Corners: {match.h2CornersAssessment.replace(/_/g, ' ')}</small>}
-              {match.htDataNote && <p className="htDataNote">{match.htDataNote}</p>}
+              {unverifiedHt
+                ? <p>Previous GPT-based HT decision is withdrawn. Verify the correct HT score and corners before using V1.</p>
+                : match.htAdvice && <p>{match.htAdvice}</p>}
+              {!unverifiedHt && match.htConfidence && <small>Confidence: {match.htConfidence}</small>}
+              {!unverifiedHt && match.htEvaluationType && <small>Record type: {match.htEvaluationType.replace(/_/g, ' ')}</small>}
+              {!unverifiedHt && match.h2GoalsAssessment && <small>H2 Goals: {match.h2GoalsAssessment.replace(/_/g, ' ')}</small>}
+              {!unverifiedHt && match.h2CornersAssessment && <small>H2 Corners: {match.h2CornersAssessment.replace(/_/g, ' ')}</small>}
+              {!unverifiedHt && match.htDataNote && <p className="htDataNote">{match.htDataNote}</p>}
               {(match.htMissingInputs ?? []).length > 0 && (
                 <small>Missing: {(match.htMissingInputs ?? []).join(', ')}</small>
               )}
@@ -201,7 +220,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {onHtCheck && match.status !== 'FT' && (
             <button className="htCheckBtn" onClick={() => onHtCheck(match)} disabled={htLoading}>
-              {htLoading ? 'GPT checking HT…' : 'HT Check'}
+              {htLoading ? 'Verifying HT…' : 'Verify HT'}
             </button>
           )}
 
