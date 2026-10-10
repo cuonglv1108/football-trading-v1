@@ -85,7 +85,15 @@ function combineResearch(rows: TradingMatch[]) {
 }
 
 export async function GET() {
-  const rawRows = await listResearch(500);
+  const rawRows = (await listResearch(500)).filter(row => {
+    if (row.status !== 'FT' && row.researchPhase !== 'FT') return true;
+    if (row.ftVerified === true) return true;
+    const sh = row.ftScoreHome ?? row.scoreHome;
+    const sa = row.ftScoreAway ?? row.scoreAway;
+    const ch = row.ftCornersHome ?? row.cornersHome;
+    const ca = row.ftCornersAway ?? row.cornersAway;
+    return !(sh === 0 && sa === 0 && ch === 0 && ca === 0);
+  });
   const rows = combineResearch(rawRows);
   const stats = computeSetupStats(rows);
   return NextResponse.json({ rows, stats }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
