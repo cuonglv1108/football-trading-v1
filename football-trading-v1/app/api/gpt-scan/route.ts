@@ -232,12 +232,13 @@ A. Start with these four exact TotalCorner league pages because each page can ex
    - Allsvenskan: https://www.totalcorner.com/league/view/66
    - Liga MX: https://www.totalcorner.com/league/view/779
    - Brazil Serie A: https://www.totalcorner.com/league/view/129
-B. Use one league-page search/open attempt per league first. Read all fixtures inside START..END, including rows that fail V1.
+B. Use one league-page search/open attempt per league first. Read all fixtures inside START..END, including rows that fail V1. Preserve the fixture's exact calendar date from the source; do not shift a match by one day when converting timezone.
 C. TotalCorner table meaning: "Asian Corn." is the FT total-corners line; "Goals" is the Asian FT total-goals line. A comma split such as "2.5, 3.0" means 2.75; "3.0, 3.5" means 3.25; similarly for quarter corner lines. If the same row/page also shows the Asian handicap, capture that exact handicap and favourite without additional searching.
 D. Only use remaining web calls for fixtures whose kickoff or one required line is unclear. Batch unresolved fixtures together rather than one search per match.
 E. Prefer the exact league page/table value. A different reputable source may be used only to fill a genuinely missing field.
 F. Keep a COMPACT audit row for every fixture discovered inside the 72-hour window. Do not add prose to audit rows.
 G. Never infer or guess a line. If either required market cannot be verified, mark UNVERIFIED.
+G2. Kickoff integrity is mandatory: the output kickoff must match the source fixture date/time. For Brazilian fixtures, verify the local Brazil calendar date before converting to ISO. If kickoff date is uncertain, mark the row UNVERIFIED instead of inventing a timestamp.
 H. QUALIFIED = corners >=10 AND goals >=2.75. NOT_QUALIFIED = both lines verified and at least one fails. UNVERIFIED = one or both lines missing.
 I. Do not use xG, form, predictions, team strength, or any betting system outside V1.
 J. Stop searching once all four league pages and any genuinely unresolved rows have been handled. Do not burn remaining calls just because they are available.
