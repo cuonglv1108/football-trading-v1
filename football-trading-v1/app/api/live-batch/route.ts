@@ -1,92 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { TradingMatch } from '../../../lib/types';
 import { saveResearchBatch } from '../../../lib/researchStore';
 import { buildH2Predictions, gradeMatchPredictions } from '../../../lib/outcomes';
 import { deriveH2Execution } from '../../../lib/h2Execution';
 import { collectVerifiedFt } from '../../../lib/verifiedFt';
+import { fetchVerifiedHt } from '../../../lib/verifiedHt';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-const LIVE_BUDGET_FILE = process.env.V1_LIVE_BUDGET_FILE || '/data/v1-live-budget.json';
-const DAILY_WEB_CALL_CAP = Number(process.env.V1_LIVE_DAILY_WEB_CALL_CAP ?? 8);
-const MAX_HT_WEB_CALLS = Number(process.env.V1_HT_BATCH_MAX_WEB_CALLS ?? 4);
-const MAX_FT_WEB_CALLS = Number(process.env.V1_FT_BATCH_MAX_WEB_CALLS ?? 3);
 const MAX_BATCH_MATCHES = 10;
-
-// One Railway replica: suppress concurrent duplicate FT checks within this process.
-// The persistent per-match cooldown in verifiedFt also survives deploys and restarts.
 let ftJobRunning = false;
-
-type Budget = { day: string; webCalls: number; estimatedCostUsd: number };
-
-function torontoDay() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-}
-
-async function readBudget(): Promise<Budget> {
-  try {
-    const raw = await fs.readFile(LIVE_BUDGET_FILE, 'utf8');
-    const data = JSON.parse(raw) as Budget;
-    if (data.day !== torontoDay()) return { day: torontoDay(), webCalls: 0, estimatedCostUsd: 0 };
-    return data;
-  } catch {
-    return { day: torontoDay(), webCalls: 0, estimatedCostUsd: 0 };
-  }
-}
-
-async function writeBudget(budget: Budget) {
-  await fs.mkdir(path.dirname(LIVE_BUDGET_FILE), { recursive: true });
-  const temp = `${LIVE_BUDGET_FILE}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(budget), 'utf8');
-  await fs.rename(temp, LIVE_BUDGET_FILE);
-}
-
-function extractText(response: any): string {
-  if (typeof response?.output_text === 'string') return response.output_text;
-  const chunks: string[] = [];
-  for (const item of response?.output ?? []) {
-    for (const content of item?.content ?? []) {
-      if (typeof content?.text === 'string') chunks.push(content.text);
-    }
-  }
-  return chunks.join('\n');
-}
-
-function parseJson(text: string) {
-  const clean = text.replace(/\`\`\`json/gi, '').replace(/\`\`\`/g, '').trim();
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-  if (start < 0 || end < start) throw new Error('Live batch returned no JSON');
-  return JSON.parse(clean.slice(start, end + 1));
-}
-
-function countWebCalls(response: any) {
-  return Array.isArray(response?.output)
-    ? response.output.filter((item: any) => item?.type === 'web_search_call').length
-    : 0;
-}
+let htJobRunning = false;
 
 function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function htEvaluate(match: TradingMatch, row: any): TradingMatch {
-  const scoreHome = nullableNumber(row.scoreHome);
-  const scoreAway = nullableNumber(row.scoreAway);
-  const cornersHome = nullableNumber(row.cornersHome);
-  const cornersAway = nullableNumber(row.cornersAway);
+  const verified = row.htVerified === true && row.htSourceType === 'API_FOOTBALL';
+  const scoreHome = verified ? nullableNumber(row.scoreHome) : null;
+  const scoreAway = verified ? nullableNumber(row.scoreAway) : null;
+  const cornersHome = verified ? nullableNumber(row.cornersHome) : null;
+  const cornersAway = verified ? nullableNumber(row.cornersAway) : null;
   const totalCorners = cornersHome != null && cornersAway != null ? cornersHome + cornersAway : null;
   const is00 = scoreHome === 0 && scoreAway === 0;
-  const favouriteCovering = row.favouriteCoveringHandicap === true;
-  const favouriteLosing = row.favouriteLosing === true;
-  const goalClear = row.ftGoalOverClear === true;
+  const favouriteCovering = verified && row.favouriteCoveringHandicap === true;
+  const favouriteLosing = verified && row.favouriteLosing === true;
+  const goalClear = verified && row.ftGoalOverClear === true;
 
   let htAction: TradingMatch['htAction'] = 'NEED_INPUT';
   let htEvaluationType: TradingMatch['htEvaluationType'] = 'NEED_INPUT';
@@ -134,10 +76,12 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
     redCardsHome: nullableNumber(row.redCardsHome) ?? 0,
     redCardsAway: nullableNumber(row.redCardsAway) ?? 0,
     htAction,
+    htVerified: verified,
+    htSourceType: verified ? 'API_FOOTBALL' : 'GPT_UNVERIFIED',
     htAdvice: reason,
-    htConfidence: totalCorners != null && scoreHome != null && scoreAway != null ? 'HIGH' : 'LOW',
+    htConfidence: verified && totalCorners != null && scoreHome != null && scoreAway != null ? 'MEDIUM' : 'LOW',
     htMissingInputs: Array.isArray(row.missingInputs) ? row.missingInputs : [],
-    htSourceSummary: typeof row.sourceSummary === 'string' ? row.sourceSummary : 'HT batch web verification',
+    htSourceSummary: typeof row.sourceSummary === 'string' ? row.sourceSummary : 'HT not verified',
     htSourceUrls: Array.isArray(row.sourceUrls) ? row.sourceUrls.filter((x: unknown) => typeof x === 'string') : [],
     htCheckedAt: htEvaluationType === 'NEED_INPUT' ? null : checkedAt,
     checkedAt,
@@ -157,6 +101,7 @@ function htEvaluate(match: TradingMatch, row: any): TradingMatch {
     h2Predictions: buildH2Predictions(base),
   };
 }
+
 
 function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const ftScoreHome = nullableNumber(row.scoreHome);
@@ -231,6 +176,7 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   };
 }
 
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -238,160 +184,89 @@ export async function POST(req: NextRequest) {
     const matches = (Array.isArray(body?.matches) ? body.matches : []).slice(0, MAX_BATCH_MATCHES) as TradingMatch[];
     if (!matches.length) return NextResponse.json({ providerStatus: 'NO_MATCHES', results: [] });
 
-    if (phase === 'FT') {
-      if (ftJobRunning) return NextResponse.json({
-        providerStatus: 'FT_CHECK_ALREADY_RUNNING',
-        message: 'FT verification is already running. No duplicate request was started.',
-        results: [], webCalls: 0, estimatedCostUsd: 0,
-      });
-      ftJobRunning = true;
-      try {
-        const report = await collectVerifiedFt(matches);
-        if (report.providerStatus !== 'CONNECTED') {
-          return NextResponse.json({
-            providerStatus: report.providerStatus, message: report.message,
-            results: [], webCalls: 0, estimatedCostUsd: 0,
-          });
-        }
-        const byId = new Map(report.rows.map(row => [row.id, row]));
-        const results = matches.map(match => ftEvaluate(match,
-          byId.get(match.id) ?? { id: match.id, matchEnded: false, sourceSummary: 'No verified fixture', sourceUrls: [] }));
-        const verified = results.filter(m => m.status === 'FT' && m.ftVerified === true);
-        if (verified.length) await saveResearchBatch(verified);
+    if (phase === 'HT') {
+      if (!process.env.API_FOOTBALL_KEY) {
         return NextResponse.json({
-          providerStatus: 'CONNECTED', phase: 'FT', results,
-          verifiedCount: verified.length, pendingCount: results.length - verified.length,
-          providerRequests: report.requests, cachedResults: report.cached, cooldownSkipped: report.deferred,
+          providerStatus: 'HT_DATA_PROVIDER_MISSING', results: [],
+          message: 'HT Batch blocked before GPT cost: reliable live statistics provider not configured. Do not follow old GPT HT recommendations.',
+          webCalls: 0, estimatedCostUsd: 0,
+        });
+      }
+      if (htJobRunning) return NextResponse.json({
+        providerStatus: 'HT_CHECK_ALREADY_RUNNING', results: [],
+        message: 'HT Batch already running. No duplicate provider requests.',
+        webCalls: 0, estimatedCostUsd: 0,
+      });
+      htJobRunning = true;
+      try {
+        const results: TradingMatch[] = [];
+        let verifiedCount = 0;
+        for (const match of matches) {
+          const report = await fetchVerifiedHt(match);
+          if (report.providerStatus === 'CONNECTED' && report.snapshot) {
+            const snap = report.snapshot;
+            const isFavouriteHome = match.favourite === 'HOME';
+            const diff = isFavouriteHome ? snap.scoreHome - snap.scoreAway : snap.scoreAway - snap.scoreHome;
+            const favVerified = match.handicapVerified === true &&
+              Number.isFinite(match.handicap);
+            const favouriteCoveringHandicap = favVerified && diff + match.handicap > 0;
+            const favouriteLosing = favVerified && diff < 0;
+            const ftGoalOverClear = (snap.scoreHome + snap.scoreAway) > Math.ceil(match.prematchGoalLine);
+            results.push(htEvaluate(match, {
+              ...snap, favouriteCoveringHandicap, favouriteLosing, ftGoalOverClear,
+            }));
+            verifiedCount++;
+          } else {
+            results.push(htEvaluate(match, {
+              htVerified: false, scoreHome: null, scoreAway: null,
+              cornersHome: null, cornersAway: null,
+              sourceSummary: report.advice || 'HT not verified',
+              missingInputs: ['Verified HT score', 'Verified HT corners'],
+            }));
+          }
+        }
+        const snapshots = results.filter(m => m.htVerified === true);
+        if (snapshots.length) await saveResearchBatch(snapshots);
+        return NextResponse.json({
+          providerStatus: 'CONNECTED', phase: 'HT', results,
+          verifiedCount, pendingCount: results.length - verifiedCount,
           webCalls: 0, estimatedCostUsd: 0,
         }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
       } finally {
-        ftJobRunning = false;
+        htJobRunning = false;
       }
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return NextResponse.json({ providerStatus: 'OPENAI_API_KEY_MISSING', results: [] });
-
-    const budget = await readBudget();
-    const remaining = Math.max(0, DAILY_WEB_CALL_CAP - budget.webCalls);
-    if (remaining <= 0) {
-      return NextResponse.json({
-        providerStatus: 'DAILY_LIVE_BUDGET_REACHED',
-        results: [],
-        budget,
+    if (ftJobRunning) return NextResponse.json({
+      providerStatus: 'FT_CHECK_ALREADY_RUNNING', message: 'FT verification is already running.',
+      results: [], webCalls: 0, estimatedCostUsd: 0,
+    });
+    ftJobRunning = true;
+    try {
+      const report = await collectVerifiedFt(matches);
+      if (report.providerStatus !== 'CONNECTED') return NextResponse.json({
+        providerStatus: report.providerStatus, message: report.message,
+        results: [], webCalls: 0, estimatedCostUsd: 0,
       });
+      const byId = new Map(report.rows.map(row => [row.id, row]));
+      const results = matches.map(match => ftEvaluate(match,
+        byId.get(match.id) ?? { id: match.id, matchEnded: false, sourceSummary: 'No verified fixture', sourceUrls: [] }));
+      const verified = results.filter(m => m.status === 'FT' && m.ftVerified === true);
+      if (verified.length) await saveResearchBatch(verified);
+      return NextResponse.json({
+        providerStatus: 'CONNECTED', phase: 'FT', results,
+        verifiedCount: verified.length, pendingCount: results.length - verified.length,
+        providerRequests: report.requests, cachedResults: report.cached, cooldownSkipped: report.deferred,
+        webCalls: 0, estimatedCostUsd: 0,
+      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    } finally {
+      ftJobRunning = false;
     }
-
-    const maxCalls = Math.min(remaining, phase === 'HT' ? MAX_HT_WEB_CALLS : MAX_FT_WEB_CALLS);
-    const compact = matches.map(m => ({
-      id: m.id, league: m.league, home: m.home, away: m.away, kickoff: m.kickoff,
-      favourite: m.handicapVerified === false ? null : m.favourite,
-      handicap: m.handicapVerified === false ? null : m.handicap,
-      handicapVerified: m.handicapVerified !== false,
-      needsHtRecovery: !m.htCheckedAt || m.htEvaluationType === 'NEED_INPUT',
-    }));
-
-    const phaseInstructions = phase === 'HT'
-      ? `For EVERY match, verify the actual halftime state. Return scoreHome, scoreAway, cornersHome, cornersAway, liveGoalLine if visible, liveCornerLine if visible, favouriteCoveringHandicap if verifiable, favouriteLosing if verifiable, ftGoalOverClear if clearly verifiable, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. First verify exact HT score/corners. Then use the remaining search effort to obtain the exact H2 line(s) relevant to V1: if HT is 0-0 with corners <=5, find BOTH H2 goals and H2 corners lines; if the corner-only V1 condition applies, prioritize the H2 corner line. Missing lines must be named specifically in missingInputs. Never guess. A red card is research context only; do not create a new V1 rule from it.`
-      : `For EVERY match, FIRST verify whether the exact fixture has actually finished. Return matchEnded=true ONLY when a reliable source explicitly shows the match as final/FT. If it is scheduled, postponed, not started, live, or cannot be confirmed final, return matchEnded=false, keep score/corners null unless clearly live, and return scheduledKickoff with the corrected ISO kickoff if found. Only when matchEnded=true return the FINAL scoreHome, scoreAway, cornersHome, cornersAway, redCardsHome, redCardsAway, missingInputs, sourceSummary, sourceUrls. If needsHtRecovery=true, ALSO recover the official/archived halftime score and first-half corner counts as htScoreHome, htScoreAway, htCornersHome, htCornersAway when publicly verifiable. Do this within the same searches; do not spend a separate search merely for recovery. Never guess. Prefer official/live-score/stat pages.`;
-
-    const prompt = `You are a low-cost batch data collector for a private football V1 research app.
-Do NOT invent betting logic. Your only job is to collect verified match data for multiple fixtures in as few web searches as possible.
-Batch searches are preferred over one search per fixture.
-
-PHASE: ${phase}
-MATCHES:
-${JSON.stringify(compact)}
-
-${phaseInstructions}
-
-Return valid JSON only:
-{
-  "rows": [
-    {
-      "id": "same id supplied",
-      "matchEnded": boolean|null,
-      "scheduledKickoff": "ISO string|null",
-      "scoreHome": number|null,
-      "scoreAway": number|null,
-      "cornersHome": number|null,
-      "cornersAway": number|null,
-      "liveGoalLine": number|null,
-      "liveCornerLine": number|null,
-      "favouriteCoveringHandicap": boolean|null,
-      "favouriteLosing": boolean|null,
-      "ftGoalOverClear": boolean|null,
-      "redCardsHome": number|null,
-      "redCardsAway": number|null,
-      "htScoreHome": number|null,
-      "htScoreAway": number|null,
-      "htCornersHome": number|null,
-      "htCornersAway": number|null,
-      "missingInputs": [],
-      "sourceSummary": "short",
-      "sourceUrls": ["https://..."]
-    }
-  ]
-}
-Include one row for every supplied id even when some fields are null.`;
-
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: process.env.OPENAI_SCAN_MODEL || 'gpt-6-luna',
-        tools: [{ type: 'web_search' }],
-        tool_choice: 'required',
-        max_tool_calls: maxCalls,
-        max_output_tokens: 5000,
-        input: prompt,
-      }),
-      cache: 'no-store',
-    });
-
-    const raw = await res.json();
-    if (!res.ok) throw new Error(raw?.error?.message || `OpenAI HTTP ${res.status}`);
-
-    const webCalls = countWebCalls(raw);
-    const inputTokens = Number(raw?.usage?.input_tokens ?? 0);
-    const outputTokens = Number(raw?.usage?.output_tokens ?? 0);
-    const estimatedCostUsd = webCalls * 0.01 + inputTokens * 0.10 / 1_000_000 + outputTokens * 0.50 / 1_000_000;
-
-    budget.webCalls += webCalls;
-    budget.estimatedCostUsd = Number((budget.estimatedCostUsd + estimatedCostUsd).toFixed(6));
-    await writeBudget(budget);
-
-    const parsed = parseJson(extractText(raw));
-    const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-    const byId = new Map(rows.map((row: any) => [String(row.id), row]));
-
-    const results = matches.map(match => {
-      const row = byId.get(match.id) ?? { id: match.id, missingInputs: ['match data not verified'] };
-      return phase === 'HT' ? htEvaluate(match, row) : ftEvaluate(match, row);
-    });
-
-    const persistable = phase === 'HT'
-      ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
-      : results.filter(m => m.status === 'FT' && m.ftVerified === true);
-    await saveResearchBatch(persistable);
-
-    return NextResponse.json({
-      providerStatus: 'CONNECTED',
-      phase,
-      results,
-      webCalls,
-      inputTokens,
-      outputTokens,
-      estimatedCostUsd: Number(estimatedCostUsd.toFixed(6)),
-      dailyLiveWebCalls: budget.webCalls,
-      dailyLiveEstimatedCostUsd: budget.estimatedCostUsd,
-    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
-    console.error('V1 live batch error', error);
+    console.error('V1 batch verification error', error);
     return NextResponse.json({
-      providerStatus: 'ERROR',
-      results: [],
-      error: error instanceof Error ? error.message : 'Unknown live batch error',
+      providerStatus: 'ERROR', results: [],
+      message: error instanceof Error ? error.message : 'Unknown batch verification error',
     }, { status: 200 });
   }
 }
