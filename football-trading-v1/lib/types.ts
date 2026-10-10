@@ -84,6 +84,7 @@ export interface TradingMatch {
   ftCornersAway?: number | null;
   ftCheckedAt?: string | null;
   ftVerified?: boolean;
+  watchStatus?: 'EXPIRED_UNVERIFIED';
   ftSourceSummary?: string;
   ftSourceUrls?: string[];
   h2ActualGoals?: number | null;
