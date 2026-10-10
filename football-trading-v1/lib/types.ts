@@ -83,6 +83,7 @@ export interface TradingMatch {
   ftCornersHome?: number | null;
   ftCornersAway?: number | null;
   ftCheckedAt?: string | null;
+  ftVerified?: boolean;
   ftSourceSummary?: string;
   ftSourceUrls?: string[];
   h2ActualGoals?: number | null;
