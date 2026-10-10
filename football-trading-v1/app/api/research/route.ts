@@ -28,7 +28,7 @@ function combineResearch(rows: TradingMatch[]) {
         /^API-Football fixture \d+/.test(ft.ftSourceSummary ?? '') &&
         [ft.ftScoreHome, ft.ftScoreAway, ft.ftCornersHome, ft.ftCornersAway]
           .every(v => v != null && Number.isInteger(v) && v >= 0);
-      const verifiedHt = ht && ht.htEvaluationType !== 'NEED_INPUT';
+      const verifiedHt = ht && ht.htVerified === true && ht.htSourceType === 'API_FOOTBALL';
       const htScoreHome = ft.htScoreHome ?? (verifiedHt ? ht?.htScoreHome ?? null : null);
       const htScoreAway = ft.htScoreAway ?? (verifiedHt ? ht?.htScoreAway ?? null : null);
       const htCornersHome = ft.htCornersHome ?? (verifiedHt ? ht?.htCornersHome ?? null : null);
@@ -71,13 +71,14 @@ function combineResearch(rows: TradingMatch[]) {
         researchPhase: 'FT',
       };
 
-      const predictions = (ft.h2Predictions?.length ? ft.h2Predictions : ht?.h2Predictions?.length ? ht.h2Predictions : buildH2Predictions(mergedBase));
-      const gradedPredictions = trustedFt
+      const predictions = (verifiedHt && ht?.h2Predictions?.length ? ht.h2Predictions : buildH2Predictions(mergedBase));
+      const gradedPredictions = trustedFt && (verifiedHt || (ft.htVerified === true && ft.htSourceType === 'API_FOOTBALL'))
         ? gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions })
         : predictions.map(p => ({ ...p, actual: null, grade: 'UNRESOLVED' as const }));
       combined.push({
         ...mergedBase,
         ftVerified: trustedFt,
+        htVerified: Boolean(verifiedHt || (ft.htVerified === true && ft.htSourceType === 'API_FOOTBALL')),
         h2ActualGoals: trustedFt ? mergedBase.h2ActualGoals : null,
         h2ActualCorners: trustedFt ? mergedBase.h2ActualCorners : null,
         h2Predictions: gradedPredictions,
