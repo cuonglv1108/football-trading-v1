@@ -134,7 +134,10 @@ export function computeSetupStats(rows: TradingMatch[]): SetupStats[] {
   const map = new Map<string, { key: string; market: 'H2_GOALS' | 'H2_CORNERS'; grades: OutcomeGrade[] }>();
 
   for (const row of rows) {
-    if (row.researchPhase !== 'FT') continue;
+    // Legacy GPT-search FT outcomes were not fixture/statistics verified; keep their
+    // history visible but never include them in measured win-rate statistics.
+    if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
+      !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
     for (const p of row.h2Predictions ?? []) {
       if (!p.active || !p.grade) continue;
       const score = gradeScore(p.grade);
