@@ -153,7 +153,7 @@ export default function Home() {
   function dueForPhase(match: TradingMatch, phase: 'HT' | 'FT') {
     if (!match.kickoff) return false;
     const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
-    if (phase === 'HT') return elapsed >= 48 && elapsed <= 85 && !match.htCheckedAt;
+    if (phase === 'HT') return elapsed >= 43 && elapsed <= 85 && match.htVerified !== true;
     return elapsed >= 105 && elapsed <= 72 * 60 && match.ftVerified !== true && match.status !== 'FT';
   }
 
@@ -200,7 +200,7 @@ export default function Home() {
       setMatches(prev => prev.map(m => byId.get(m.id) ?? m));
       setHistory(prev => {
         const historyResults = phase === 'HT'
-          ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
+          ? results.filter(m => m.htVerified === true)
           : results.filter(m => m.status === 'FT' && m.ftVerified === true);
         const completed = new Set(historyResults.filter(m => m.status === 'FT' && m.ftVerified).map(m => m.id));
         const merged = [...historyResults, ...prev.filter(m => !(completed.has(m.id) && m.watchStatus === 'EXPIRED_UNVERIFIED'))];
@@ -216,7 +216,7 @@ export default function Home() {
         setNotice(`FT Batch · ${verified} verified · ${pending} pending · ${data.providerRequests ?? 0} fixture API requests · 0 GPT web searches${reason ? ' · ' + reason : ''}`);
         void loadSharedResearch();
       } else {
-        setNotice(`HT Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · estimated ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`);
+        setNotice(`HT Batch · ${results.filter(m => m.htVerified === true).length} source-verified · ${results.filter(m => m.htVerified !== true).length} pending · 0 GPT web searches`);
       }
     } catch {
       setNotice(`${phase} Batch failed. Saved data was not overwritten.`);
@@ -364,7 +364,7 @@ export default function Home() {
 
   async function runHtCheck(match: TradingMatch) {
     setHtLoadingId(match.id);
-    setNotice(`GPT is checking HT · ${match.home} vs ${match.away}`);
+    setNotice(`Verifying HT with fixture statistics · ${match.home} vs ${match.away}`);
     try {
       const res = await fetch('/api/ht-check', {
         method: 'POST',
@@ -378,11 +378,11 @@ export default function Home() {
         return;
       }
       if (data.providerStatus !== 'CONNECTED') {
-        setNotice(data.advice || 'HT Check failed. Try again.');
+        setNotice(data.advice || 'HT source unavailable. No automatic H2 recommendation was issued.');
         return;
       }
 
-      if (data.action === 'NEED_INPUT' || data.evaluationType === 'NEED_INPUT') {
+      if (data.htVerified !== true || data.htSourceType !== 'API_FOOTBALL' || data.action === 'NEED_INPUT' || data.evaluationType === 'NEED_INPUT') {
         setNotice('HT source has not confirmed the interval yet. Match stays pending — retry in a few minutes; this attempt will NOT be marked as completed HT.');
         return;
       }
@@ -400,6 +400,8 @@ export default function Home() {
         favouriteLosing: data.favouriteLosing ?? false,
         ftGoalOverClear: data.ftGoalOverClear ?? false,
         htAction: data.action,
+        htVerified: true,
+        htSourceType: 'API_FOOTBALL',
         htAdvice: data.reason,
         htConfidence: data.confidence,
         htMissingInputs: Array.isArray(data.missingInputs) ? data.missingInputs : [],
@@ -496,7 +498,11 @@ export default function Home() {
             : htAction === 'H2_CORNERS'
               ? `V1 trigger: HT corners ${totalHtCorners} <= 5 plus aligned favourite/FT-goals condition -> H2 Corners.`
               : `No V1 trigger: HT corners ${totalHtCorners} <= 5 but the remaining V1 conditions are not aligned.`,
-        htConfidence: 'HIGH',
+        htConfidence: 'LOW',
+        htVerified: false,
+        htSourceType: 'MANUAL',
+        htSourceSummary: 'Manually entered HT data; not independently verified',
+        htSourceUrls: [],
         htMissingInputs: [],
         htCheckedAt: updated.checkedAt,
         htScoreHome: updated.scoreHome,
