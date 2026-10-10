@@ -453,6 +453,16 @@ export default function Home() {
     e.preventDefault();
     if (!checkpoint) return;
     const fd = new FormData(e.currentTarget);
+    const isHt = fd.get('status') === 'HT';
+    const required = ['scoreHome', 'scoreAway', 'cornersHome', 'cornersAway'];
+    if (isHt && required.some(name => {
+      const raw = fd.get(name);
+      return typeof raw !== 'string' || raw.trim() === '' ||
+        !Number.isInteger(Number(raw)) || Number(raw) < 0;
+    })) {
+      setNotice('Manual HT check needs both scores and BOTH team corner counts. Empty is not zero.');
+      return;
+    }
 
     const updated: TradingMatch = {
       ...checkpoint,
@@ -702,10 +712,10 @@ export default function Home() {
                 <option value="FT">FT</option>
               </select>
               <input name="minute" type="number" placeholder="Minute" defaultValue={checkpoint.minute ?? 45} />
-              <input name="scoreHome" type="number" min="0" placeholder="Home goals" defaultValue={checkpoint.scoreHome} />
-              <input name="scoreAway" type="number" min="0" placeholder="Away goals" defaultValue={checkpoint.scoreAway} />
-              <input name="cornersHome" type="number" min="0" placeholder="Home corners" defaultValue={checkpoint.cornersHome} />
-              <input name="cornersAway" type="number" min="0" placeholder="Away corners" defaultValue={checkpoint.cornersAway} />
+              <input name="scoreHome" type="number" min="0" required placeholder="Home goals (required)" defaultValue={checkpoint.htCheckedAt || checkpoint.htSourceType === 'MANUAL' ? checkpoint.scoreHome : ''} />
+              <input name="scoreAway" type="number" min="0" required placeholder="Away goals (required)" defaultValue={checkpoint.htCheckedAt || checkpoint.htSourceType === 'MANUAL' ? checkpoint.scoreAway : ''} />
+              <input name="cornersHome" type="number" min="0" required placeholder="Home corners (required)" defaultValue={checkpoint.htSourceType === 'MANUAL' ? checkpoint.cornersHome : ''} />
+              <input name="cornersAway" type="number" min="0" required placeholder="Away corners (required)" defaultValue={checkpoint.htSourceType === 'MANUAL' ? checkpoint.cornersAway : ''} />
               <input name="liveCornerLine" type="number" step="0.25" placeholder="365 live corner line" defaultValue={checkpoint.liveCornerLine ?? ''} />
               <input name="liveGoalLine" type="number" step="0.25" placeholder="365 live goal line" defaultValue={checkpoint.liveGoalLine ?? ''} />
             </div>
@@ -717,7 +727,7 @@ export default function Home() {
             </div>
 
             <button className="primaryBtn" type="submit">Evaluate V1 snapshot</button>
-            <p className="formHint">At the checkpoint, enter only the current Bet365 snapshot. The app recalculates V1 and saves it to History.</p>
+            <p className="formHint">Manual data are NOT independently verified. Enter exact HT scores and corners from your sportsbook; leave missing H2 lines blank (never 0). V1 results will be marked MANUAL.</p>
           </form>
         </div>
       )}
