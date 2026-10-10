@@ -22,6 +22,12 @@ function combineResearch(rows: TradingMatch[]) {
     if (group.ft) {
       const ht = group.ht;
       const ft = group.ft;
+      // Older web-search FT snapshots may have plausible-looking but unverified data.
+      // Do not publish their grades or count them in research statistics.
+      const trustedFt = ft.ftVerified === true &&
+        /^API-Football fixture \d+/.test(ft.ftSourceSummary ?? '') &&
+        [ft.ftScoreHome, ft.ftScoreAway, ft.ftCornersHome, ft.ftCornersAway]
+          .every(v => v != null && Number.isInteger(v) && v >= 0);
       const verifiedHt = ht && ht.htEvaluationType !== 'NEED_INPUT';
       const htScoreHome = ft.htScoreHome ?? (verifiedHt ? ht?.htScoreHome ?? null : null);
       const htScoreAway = ft.htScoreAway ?? (verifiedHt ? ht?.htScoreAway ?? null : null);
@@ -66,8 +72,16 @@ function combineResearch(rows: TradingMatch[]) {
       };
 
       const predictions = (ft.h2Predictions?.length ? ft.h2Predictions : ht?.h2Predictions?.length ? ht.h2Predictions : buildH2Predictions(mergedBase));
-      const gradedPredictions = gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions });
-      combined.push({ ...mergedBase, h2Predictions: gradedPredictions });
+      const gradedPredictions = trustedFt
+        ? gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions })
+        : predictions.map(p => ({ ...p, actual: null, grade: 'UNRESOLVED' as const }));
+      combined.push({
+        ...mergedBase,
+        ftVerified: trustedFt,
+        h2ActualGoals: trustedFt ? mergedBase.h2ActualGoals : null,
+        h2ActualCorners: trustedFt ? mergedBase.h2ActualCorners : null,
+        h2Predictions: gradedPredictions,
+      });
     } else if (group.ht) {
       combined.push({
         ...group.ht,
