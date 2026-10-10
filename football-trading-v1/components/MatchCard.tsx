@@ -114,7 +114,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {match.sourceSummary && (
             <div className="sourceBox">
-              <span>Source</span>
+              <span>Pre-match odds source (not HT)</span>
               <b>{match.sourceSummary}</b>
               {(match.sourceUrls ?? []).slice(0, 2).map((url, i) => (
                 <a key={url + i} href={url} target="_blank" rel="noreferrer">Open source {i + 1}</a>
@@ -139,7 +139,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           </div>
 
-          {(match.redCardsHome != null || match.redCardsAway != null) && (
+          {!unverifiedHt && (match.redCardsHome != null || match.redCardsAway != null) && (
             <div className="liveLines">
               <span>Red cards</span>
               <b>{match.redCardsHome ?? 0} - {match.redCardsAway ?? 0}</b>
@@ -191,6 +191,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {match.htAction && (
             <div className="htAdvice">
+              {(verifiedHt || manualHt) && (
+                <small>HT source: {match.htSourceSummary ?? (manualHt ? 'MANUAL INPUT' : 'API-Football')}</small>
+              )}
               <div className="htAdviceTop">
                 <span>HT DECISION</span>
                 <b>{unverifiedHt ? 'UNVERIFIED · DISABLED' : match.htAction.replace(/_/g, ' ')}</b>
