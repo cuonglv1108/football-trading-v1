@@ -34,8 +34,8 @@ export function gradeAsianOver(actual: number | null | undefined, line: number |
 
 export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
   const out: H2Prediction[] = [];
-  const goalLine = typeof match.liveGoalLine === 'number' ? match.liveGoalLine : null;
-  const cornerLine = typeof match.liveCornerLine === 'number' ? match.liveCornerLine : null;
+  const goalLine = typeof match.liveGoalLine === 'number' && match.liveGoalLine > 0 ? match.liveGoalLine : null;
+  const cornerLine = typeof match.liveCornerLine === 'number' && match.liveCornerLine > 0 ? match.liveCornerLine : null;
 
   if (match.htAction === 'H2_GOALS_AND_CORNERS') {
     out.push({
@@ -137,6 +137,7 @@ export function computeSetupStats(rows: TradingMatch[]): SetupStats[] {
     // Legacy GPT-search FT outcomes were not fixture/statistics verified; keep their
     // history visible but never include them in measured win-rate statistics.
     if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
+      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
     for (const p of row.h2Predictions ?? []) {
       if (!p.active || !p.grade) continue;
