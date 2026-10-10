@@ -200,6 +200,7 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const base: TradingMatch = {
     ...match,
     status: 'FT',
+    watchStatus: undefined,
     scoreHome: ftScoreHome ?? match.scoreHome,
     scoreAway: ftScoreAway ?? match.scoreAway,
     cornersHome: ftCornersHome ?? match.cornersHome,
