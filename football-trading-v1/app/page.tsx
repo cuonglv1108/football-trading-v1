@@ -13,9 +13,21 @@ type View = 'SCANNER' | 'STARRED' | 'HISTORY';
 const STAR_KEY = 'football-trading-v1-starred';
 const HISTORY_KEY = 'football-trading-v1-history';
 
+function isTrustedLegacyFt(row: TradingMatch) {
+  if (row.status !== 'FT' && row.researchPhase !== 'FT') return true;
+  if (row.ftVerified === true) return true;
+  const sh = row.ftScoreHome ?? row.scoreHome;
+  const sa = row.ftScoreAway ?? row.scoreAway;
+  const ch = row.ftCornersHome ?? row.cornersHome;
+  const ca = row.ftCornersAway ?? row.cornersAway;
+  // Old bug converted null -> 0. Do not keep legacy all-zero "FT" snapshots as real results.
+  return !(sh === 0 && sa === 0 && ch === 0 && ca === 0);
+}
+
 function readSaved(key: string): TradingMatch[] {
   try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
+    const rows = JSON.parse(localStorage.getItem(key) || '[]') as TradingMatch[];
+    return Array.isArray(rows) ? rows.filter(isTrustedLegacyFt) : [];
   } catch {
     return [];
   }
@@ -133,7 +145,7 @@ export default function Home() {
       const results = (data.results ?? []) as TradingMatch[];
       const byId = new Map(results.map(m => [m.id, m]));
       setStarred(prev => {
-        const completedIds = new Set(results.filter(m => m.status === 'FT').map(m => m.id));
+        const completedIds = new Set(results.filter(m => m.status === 'FT' && m.ftVerified === true).map(m => m.id));
         const next = phase === 'FT'
           ? prev.filter(m => !completedIds.has(m.id) && m.status !== 'FT')
           : prev.map(m => byId.get(m.id) ?? m).filter(m => m.status !== 'FT');
@@ -144,14 +156,20 @@ export default function Home() {
       setHistory(prev => {
         const historyResults = phase === 'HT'
           ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
-          : results;
+          : results.filter(m => m.status === 'FT' && m.ftVerified === true);
         const merged = [...historyResults, ...prev];
         const deduped = Array.from(new Map(merged.map(m => [`${m.id}-${m.researchPhase ?? m.status}`, m])).values()).slice(0, 500);
         localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
         return deduped;
       });
 
-      if (phase === 'FT') void loadSharedResearch();
+      if (phase === 'FT') {
+        const pending = results.filter(m => m.status !== 'FT');
+        if (pending.length) {
+          setNotice(`FT Batch · ${pending.length} match(es) are not verified final yet; no fake result was saved.`);
+        }
+        void loadSharedResearch();
+      }
 
       setNotice(
         `${phase} Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · est. ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`
