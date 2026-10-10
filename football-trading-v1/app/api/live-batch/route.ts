@@ -5,6 +5,7 @@ import { TradingMatch } from '../../../lib/types';
 import { saveResearchBatch } from '../../../lib/researchStore';
 import { buildH2Predictions, gradeMatchPredictions } from '../../../lib/outcomes';
 import { deriveH2Execution } from '../../../lib/h2Execution';
+import { collectVerifiedFt } from '../../../lib/verifiedFt';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,6 +15,10 @@ const DAILY_WEB_CALL_CAP = Number(process.env.V1_LIVE_DAILY_WEB_CALL_CAP ?? 8);
 const MAX_HT_WEB_CALLS = Number(process.env.V1_HT_BATCH_MAX_WEB_CALLS ?? 4);
 const MAX_FT_WEB_CALLS = Number(process.env.V1_FT_BATCH_MAX_WEB_CALLS ?? 3);
 const MAX_BATCH_MATCHES = 10;
+
+// One Railway replica: suppress concurrent duplicate FT checks within this process.
+// The persistent per-match cooldown in verifiedFt also survives deploys and restarts.
+let ftJobRunning = false;
 
 type Budget = { day: string; webCalls: number; estimatedCostUsd: number };
 
@@ -160,10 +165,10 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const ftCornersAway = nullableNumber(row.cornersAway);
   const matchEnded = row.matchEnded === true;
 
-  const recoveredHtScoreHome = match.htScoreHome ?? nullableNumber(row.htScoreHome);
-  const recoveredHtScoreAway = match.htScoreAway ?? nullableNumber(row.htScoreAway);
-  const recoveredHtCornersHome = match.htCornersHome ?? nullableNumber(row.htCornersHome);
-  const recoveredHtCornersAway = match.htCornersAway ?? nullableNumber(row.htCornersAway);
+  const recoveredHtScoreHome = nullableNumber(row.htScoreHome) ?? match.htScoreHome ?? null;
+  const recoveredHtScoreAway = nullableNumber(row.htScoreAway) ?? match.htScoreAway ?? null;
+  const recoveredHtCornersHome = nullableNumber(row.htCornersHome) ?? match.htCornersHome ?? null;
+  const recoveredHtCornersAway = nullableNumber(row.htCornersAway) ?? match.htCornersAway ?? null;
 
   const htGoals = recoveredHtScoreHome != null && recoveredHtScoreAway != null
     ? recoveredHtScoreHome + recoveredHtScoreAway : null;
@@ -172,14 +177,19 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
   const ftGoals = ftScoreHome != null && ftScoreAway != null ? ftScoreHome + ftScoreAway : null;
   const ftCorners = ftCornersHome != null && ftCornersAway != null ? ftCornersHome + ftCornersAway : null;
 
-  const h2ActualGoals = htGoals != null && ftGoals != null ? Math.max(0, ftGoals - htGoals) : null;
-  const h2ActualCorners = htCorners != null && ftCorners != null ? Math.max(0, ftCorners - htCorners) : null;
+  // Inconsistent HT/FT snapshots must not be silently clamped to zero.
+  const h2ActualGoals = htGoals != null && ftGoals != null && ftGoals >= htGoals ? ftGoals - htGoals : null;
+  const h2ActualCorners = htCorners != null && ftCorners != null && ftCorners >= htCorners ? ftCorners - htCorners : null;
   const checkedAt = new Date().toISOString();
 
-  if (!matchEnded || ftScoreHome == null || ftScoreAway == null) {
+  const validFinal = matchEnded &&
+    [ftScoreHome, ftScoreAway, ftCornersHome, ftCornersAway].every(n => n != null && Number.isInteger(n) && n >= 0) &&
+    /^API-Football fixture \d+/.test(String(row.sourceSummary ?? ''));
+  if (!validFinal) {
     return {
       ...match,
       kickoff: typeof row.scheduledKickoff === 'string' && row.scheduledKickoff ? row.scheduledKickoff : match.kickoff,
+      status: match.status === 'FT' ? 'HT' : match.status,
       ftVerified: false,
       ftSourceSummary: typeof row.sourceSummary === 'string' ? row.sourceSummary : 'FT not verified',
       ftSourceUrls: Array.isArray(row.sourceUrls) ? row.sourceUrls.filter((x: unknown) => typeof x === 'string') : [],
@@ -221,14 +231,45 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return NextResponse.json({ providerStatus: 'OPENAI_API_KEY_MISSING', results: [] });
-
   try {
     const body = await req.json();
     const phase = body?.phase === 'FT' ? 'FT' : 'HT';
     const matches = (Array.isArray(body?.matches) ? body.matches : []).slice(0, MAX_BATCH_MATCHES) as TradingMatch[];
     if (!matches.length) return NextResponse.json({ providerStatus: 'NO_MATCHES', results: [] });
+
+    if (phase === 'FT') {
+      if (ftJobRunning) return NextResponse.json({
+        providerStatus: 'FT_CHECK_ALREADY_RUNNING',
+        message: 'FT verification is already running. No duplicate request was started.',
+        results: [], webCalls: 0, estimatedCostUsd: 0,
+      });
+      ftJobRunning = true;
+      try {
+        const report = await collectVerifiedFt(matches);
+        if (report.providerStatus !== 'CONNECTED') {
+          return NextResponse.json({
+            providerStatus: report.providerStatus, message: report.message,
+            results: [], webCalls: 0, estimatedCostUsd: 0,
+          });
+        }
+        const byId = new Map(report.rows.map(row => [row.id, row]));
+        const results = matches.map(match => ftEvaluate(match,
+          byId.get(match.id) ?? { id: match.id, matchEnded: false, sourceSummary: 'No verified fixture', sourceUrls: [] }));
+        const verified = results.filter(m => m.status === 'FT' && m.ftVerified === true);
+        if (verified.length) await saveResearchBatch(verified);
+        return NextResponse.json({
+          providerStatus: 'CONNECTED', phase: 'FT', results,
+          verifiedCount: verified.length, pendingCount: results.length - verified.length,
+          providerRequests: report.requests, cachedResults: report.cached, cooldownSkipped: report.deferred,
+          webCalls: 0, estimatedCostUsd: 0,
+        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+      } finally {
+        ftJobRunning = false;
+      }
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return NextResponse.json({ providerStatus: 'OPENAI_API_KEY_MISSING', results: [] });
 
     const budget = await readBudget();
     const remaining = Math.max(0, DAILY_WEB_CALL_CAP - budget.webCalls);
