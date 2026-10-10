@@ -33,6 +33,14 @@ function readSaved(key: string): TradingMatch[] {
   }
 }
 
+// Past the maximum normal match window, remove from the active list WITHOUT claiming FT.
+const ARCHIVE_AFTER_MS = 180 * 60000;
+function isWatchExpired(match: TradingMatch, now: number = Date.now()) {
+  const kickoff = new Date(match.kickoff || '').getTime();
+  return match.status !== 'FT' && Number.isFinite(kickoff) &&
+    now - kickoff >= ARCHIVE_AFTER_MS;
+}
+
 function nextCheckpoint(match: TradingMatch) {
   if (!match.kickoff) return 'Checkpoint';
   const kickoff = new Date(match.kickoff).getTime();
@@ -64,6 +72,7 @@ export default function Home() {
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
   const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
+  const [clock, setClock] = useState(() => Date.now());
 
   useEffect(() => {
     const savedWatchlist = readSaved(STAR_KEY).filter(m => m.status !== 'FT');
@@ -73,6 +82,38 @@ export default function Home() {
     loadCachedScan();
     loadSharedResearch();
   }, []);
+
+  // Timed cleanup is entirely local: no GPT call, no football API request.
+  useEffect(() => {
+    const interval = window.setInterval(() => setClock(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const expired = starred.filter(m => isWatchExpired(m, clock));
+    if (!expired.length) return;
+
+    const active = starred.filter(m => !isWatchExpired(m, clock));
+    setStarred(active);
+    localStorage.setItem(STAR_KEY, JSON.stringify(active));
+
+    setHistory(prev => {
+      const archived: TradingMatch[] = expired.map(m => ({
+        ...m,
+        watchStatus: 'EXPIRED_UNVERIFIED',
+        researchPhase: 'MANUAL',
+        checkedAt: new Date().toISOString(),
+      }));
+      const merged = new Map<string, TradingMatch>();
+      for (const row of [...archived, ...prev]) {
+        const key = `${row.id}|${row.researchPhase ?? row.status}`;
+        if (!merged.has(key)) merged.set(key, row);
+      }
+      const next = Array.from(merged.values()).slice(0, 500);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [starred, clock]);
 
   async function loadSharedResearch() {
     try {
@@ -113,11 +154,15 @@ export default function Home() {
     if (!match.kickoff) return false;
     const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
     if (phase === 'HT') return elapsed >= 48 && elapsed <= 85 && !match.htCheckedAt;
-    return elapsed >= 105 && match.status !== 'FT';
+    return elapsed >= 105 && elapsed <= 72 * 60 && match.ftVerified !== true && match.status !== 'FT';
   }
 
   async function runLiveBatch(phase: 'HT' | 'FT') {
-    const candidates = starred.filter(m => dueForPhase(m, phase)).slice(0, 10);
+    const pool = phase === 'FT'
+      ? [...starred, ...history.filter(m => m.watchStatus === 'EXPIRED_UNVERIFIED')]
+      : starred;
+    const unique = new Map(pool.filter(m => dueForPhase(m, phase)).map(m => [m.id, m]));
+    const candidates = Array.from(unique.values()).slice(0, 10);
     if (!candidates.length) {
       setNotice(phase === 'HT' ? 'No HT checks are due right now.' : 'No FT checks are due right now.');
       return;
@@ -138,7 +183,7 @@ export default function Home() {
         return;
       }
       if (data.providerStatus !== 'CONNECTED') {
-        setNotice(data.error || 'Batch check failed.');
+        setNotice(data.message || data.error || 'Batch check failed. No result was verified.');
         return;
       }
 
@@ -157,23 +202,22 @@ export default function Home() {
         const historyResults = phase === 'HT'
           ? results.filter(m => m.htEvaluationType !== 'NEED_INPUT')
           : results.filter(m => m.status === 'FT' && m.ftVerified === true);
-        const merged = [...historyResults, ...prev];
+        const completed = new Set(historyResults.filter(m => m.status === 'FT' && m.ftVerified).map(m => m.id));
+        const merged = [...historyResults, ...prev.filter(m => !(completed.has(m.id) && m.watchStatus === 'EXPIRED_UNVERIFIED'))];
         const deduped = Array.from(new Map(merged.map(m => [`${m.id}-${m.researchPhase ?? m.status}`, m])).values()).slice(0, 500);
         localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
         return deduped;
       });
 
       if (phase === 'FT') {
-        const pending = results.filter(m => m.status !== 'FT');
-        if (pending.length) {
-          setNotice(`FT Batch · ${pending.length} match(es) are not verified final yet; no fake result was saved.`);
-        }
+        const verified = results.filter(m => m.status === 'FT' && m.ftVerified === true).length;
+        const pending = results.length - verified;
+        const reason = pending && results.find(m => m.ftVerified !== true)?.ftSourceSummary;
+        setNotice(`FT Batch · ${verified} verified · ${pending} pending · ${data.providerRequests ?? 0} fixture API requests · 0 GPT web searches${reason ? ' · ' + reason : ''}`);
         void loadSharedResearch();
+      } else {
+        setNotice(`HT Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · estimated ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`);
       }
-
-      setNotice(
-        `${phase} Batch · ${results.length} matches · ${data.webCalls ?? 0} web calls · est. ${Number(data.estimatedCostUsd ?? 0).toFixed(3)}`
-      );
     } catch {
       setNotice(`${phase} Batch failed. Saved data was not overwritten.`);
     } finally {
@@ -202,8 +246,8 @@ export default function Home() {
       if (incoming.length) {
         setStarred(prev => {
           const merged = new Map<string, TradingMatch>();
-          for (const m of prev.filter(m => m.status !== 'FT')) merged.set(m.id, m);
-          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT')) merged.set(m.id, m);
+          for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
+          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
@@ -233,8 +277,8 @@ export default function Home() {
     const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
     const merged = new Map<string, TradingMatch>();
 
-    for (const m of current) merged.set(m.id, m);
-    for (const m of autoPicks) merged.set(m.id, m);
+    for (const m of current.filter(m => !isWatchExpired(m))) merged.set(m.id, m);
+    for (const m of autoPicks.filter(m => !isWatchExpired(m))) merged.set(m.id, m);
 
     const next = Array.from(merged.values()).sort(
       (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
@@ -278,8 +322,8 @@ export default function Home() {
         setStarred(prev => {
           const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
           const merged = new Map<string, TradingMatch>();
-          for (const m of prev.filter(m => m.status !== 'FT')) merged.set(m.id, m);
-          for (const m of autoPicks.filter(m => m.status !== 'FT')) merged.set(m.id, m);
+          for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
+          for (const m of autoPicks.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
@@ -512,13 +556,13 @@ export default function Home() {
     }
   }
 
-  const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT') : view === 'HISTORY' ? history : matches;
+  const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock)) : view === 'HISTORY' ? history : matches.filter(m => !isWatchExpired(m, clock));
   const filtered = useMemo(
     () => league === 'ALL' ? source : source.filter(m => m.league === league),
     [source, league]
   );
 
-  const dueCount = starred.filter(m => m.status !== 'FT' && /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
+  const dueCount = starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock) && /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
   const triggerCount = starred.filter(m => m.state === 'TRIGGER').length;
   const qualifiedCount = matches.filter(m => m.state === 'QUALIFIED').length;
 
