@@ -22,6 +22,8 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const handicapText = match.handicapVerified === false
     ? '—'
     : `${favouriteName} ${match.handicap > 0 ? '+' : ''}${match.handicap}`;
+  const reliableFt = match.researchPhase === 'FT' && match.ftVerified === true &&
+    /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
   const execution = match.htAction ? deriveH2Execution(match) : null;
   const executionText = match.h2ExecutionText ?? execution?.text;
   const executionDetail = match.h2ExecutionDetail ?? execution?.detail;
@@ -41,7 +43,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
               ★
             </button>
           )}
-          <span className="status">{match.status === 'LIVE' ? `${match.minute}'` : match.status}</span>
+          <span className="status">{match.watchStatus === 'EXPIRED_UNVERIFIED' ? 'ARCHIVED' : match.status === 'LIVE' ? `${match.minute}'` : match.status}</span>
         </div>
       </div>
 
@@ -58,6 +60,18 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       )}
 
+      {match.watchStatus === 'EXPIRED_UNVERIFIED' && (
+        <div className="htAdvice">
+          <b>ARCHIVED · FT NOT VERIFIED</b>
+          <p>Removed from active watchlist after the match window. This is not a confirmed final score.</p>
+        </div>
+      )}
+      {match.researchPhase === 'FT' && !reliableFt && (
+        <div className="htAdvice">
+          <b>LEGACY FT DATA · UNVERIFIED</b>
+          <p>Old web-search FT records are retained for audit, not graded as verified outcomes.</p>
+        </div>
+      )}
       {executionText && (
         <div className="htAdvice">
           <div className="htAdviceTop">
@@ -122,7 +136,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div className="liveLines">
               <span>H2 actual</span>
               <b>Goals {match.h2ActualGoals ?? '—'} · Corners {match.h2ActualCorners ?? '—'}</b>
-              {match.researchPhase === 'FT' && (
+              {reliableFt && (
                 <small>
                   {match.h2ActualGoals != null
                     ? `H2 goals produced ${match.h2ActualGoals}. ${match.h2ActualGoals >= 2 ? 'This was strong H2 goal activity, but exact WIN/PUSH depends on the HT line.' : match.h2ActualGoals === 1 ? 'Some lower H2 goal lines may have won/pushed; exact grade depends on the HT line.' : 'No H2 goals were scored.'}`
@@ -139,7 +153,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div className="htAdvice">
               <div className="htAdviceTop">
                 <span>H2 RESEARCH RECORD</span>
-                <b>{match.researchPhase === 'FT' ? 'GRADED' : 'PENDING FT'}</b>
+                <b>{reliableFt ? 'GRADED' : match.researchPhase === 'FT' ? 'UNVERIFIED FT' : 'PENDING FT'}</b>
               </div>
               {(match.h2Predictions ?? []).map((p, i) => (
                 <div key={`${p.market}-${i}`} className="liveLines">
