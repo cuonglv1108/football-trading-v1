@@ -11,8 +11,8 @@ export type H2ExecutionAction =
   | 'WAIT_HT_DATA';
 
 export function deriveH2Execution(match: Pick<TradingMatch, 'htAction' | 'liveGoalLine' | 'liveCornerLine'>) {
-  const goalLine = typeof match.liveGoalLine === 'number' ? match.liveGoalLine : null;
-  const cornerLine = typeof match.liveCornerLine === 'number' ? match.liveCornerLine : null;
+  const goalLine = typeof match.liveGoalLine === 'number' && Number.isFinite(match.liveGoalLine) && match.liveGoalLine > 0 ? match.liveGoalLine : null;
+  const cornerLine = typeof match.liveCornerLine === 'number' && Number.isFinite(match.liveCornerLine) && match.liveCornerLine > 0 ? match.liveCornerLine : null;
 
   if (!match.htAction || match.htAction === 'NEED_INPUT') {
     return {
