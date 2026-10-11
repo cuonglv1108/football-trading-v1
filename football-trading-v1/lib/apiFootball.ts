@@ -75,32 +75,43 @@ function numberFrom(value: unknown): number | null {
 }
 
 function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: string; main?: boolean | null }> = []): number | null {
-  type Quote = { side: 'OVER' | 'UNDER'; line: number; main: boolean; index: number };
-  const quotes: Quote[] = [];
+  const byLine = new Map<number, { over?: number; under?: number; mainOver?: boolean; mainUnder?: boolean }>();
 
-  values.forEach((item, index) => {
+  for (const item of values) {
     const text = String(item.value ?? '');
-    const side: Quote['side'] | null = /over/i.test(text) ? 'OVER' : /under/i.test(text) ? 'UNDER' : null;
     const line = numberFrom(item.handicap ?? text);
-    if (!side || line === null) return;
-    quotes.push({ side, line: Math.abs(line), main: item.main === true, index });
-  });
+    const odd = Number(item.odd);
+    if (line === null || !Number.isFinite(odd)) continue;
 
-  const pairs: Array<{ over: Quote; under: Quote }> = [];
-  for (let i = 0; i < quotes.length; i++) {
-    const first = quotes[i];
-    const second = quotes[i + 1];
-    if (!second) continue;
-    const over = first.side === 'OVER' ? first : second.side === 'OVER' ? second : null;
-    const under = first.side === 'UNDER' ? first : second.side === 'UNDER' ? second : null;
-    if (!over || !under) continue;
-    if (Math.abs(over.line - under.line) > 0.001) continue;
-    pairs.push({ over, under });
+    const key = Math.abs(line);
+    const slot = byLine.get(key) ?? {};
+    if (/over/i.test(text)) {
+      slot.over = odd;
+      if (item.main === true) slot.mainOver = true;
+    }
+    if (/under/i.test(text)) {
+      slot.under = odd;
+      if (item.main === true) slot.mainUnder = true;
+    }
+    byLine.set(key, slot);
   }
 
-  if (!pairs.length) return null;
-  const explicitMain = pairs.find(p => p.over.main && p.under.main);
-  return (explicitMain ?? pairs[0]).over.line;
+  // If the provider explicitly marks a main total, use it.
+  for (const [line, pair] of byLine) {
+    if (pair.over != null && pair.under != null && pair.mainOver && pair.mainUnder) return line;
+  }
+
+  // Pre-match totals do not always carry a main flag. For goals/corners only,
+  // choose the balanced Over/Under line. These are V1 qualification markets.
+  let best: { line: number; score: number } | null = null;
+  for (const [line, pair] of byLine) {
+    if (pair.over == null || pair.under == null) continue;
+    const score = Math.abs(pair.over - pair.under) +
+      Math.abs(pair.over - 1.9) * 0.25 +
+      Math.abs(pair.under - 1.9) * 0.25;
+    if (!best || score < best.score) best = { line, score };
+  }
+  return best?.line ?? null;
 }
 
 function moneylineFavourite(bets: any[]): 'HOME' | 'AWAY' | null {
@@ -136,54 +147,40 @@ function parseHandicap(
   values: Array<{ value?: string; odd?: string | number; handicap?: string | number; main?: boolean | null }> = [],
   moneylineFav: 'HOME' | 'AWAY' | null
 ) {
-  type Quote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number | null; main: boolean; index: number };
+  type Quote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number | null; main: boolean };
   const quotes: Quote[] = [];
 
-  values.forEach((item, index) => {
+  for (const item of values) {
     const side = sideFromValue(item.value);
     const handicap = numberFrom(item.handicap ?? item.value);
     const odd = Number(item.odd);
-    if (!side || handicap === null) return;
+    if (!side || handicap === null) continue;
     quotes.push({
       side,
       handicap,
       odd: Number.isFinite(odd) ? odd : null,
       main: item.main === true,
-      index,
     });
-  });
-
-  // Pre-match API responses may contain multiple alternative Asian lines.
-  // We must preserve bookmaker ordering and take the FIRST valid Home/Away pair
-  // (the top/default line shown by the sportsbook), not the pair whose price
-  // happens to be closest to 1.90.
-  const pairs: Array<{ home: Quote; away: Quote }> = [];
-  for (let i = 0; i < quotes.length; i++) {
-    const first = quotes[i];
-    const second = quotes[i + 1];
-    if (!second) continue;
-    const home = first.side === 'HOME' ? first : second.side === 'HOME' ? second : null;
-    const away = first.side === 'AWAY' ? first : second.side === 'AWAY' ? second : null;
-    if (!home || !away) continue;
-    if (Math.abs(Math.abs(home.handicap) - Math.abs(away.handicap)) > 0.001) continue;
-    if (!(home.handicap < 0 && away.handicap > 0) && !(away.handicap < 0 && home.handicap > 0)) continue;
-    pairs.push({ home, away });
   }
 
-  if (!pairs.length) return null;
+  // API-Football pre-match odds can expose several alternative Asian lines and
+  // does not reliably identify the sportsbook's displayed main line.
+  // Only accept a handicap when BOTH sides are explicitly marked main.
+  const home = quotes.find(q => q.side === 'HOME' && q.main);
+  const away = quotes.find(q => q.side === 'AWAY' && q.main);
+  if (!home || !away) return null;
+  if (Math.abs(Math.abs(home.handicap) - Math.abs(away.handicap)) > 0.001) return null;
 
-  const explicitMain = pairs.find(p => p.home.main && p.away.main);
-  const selected = explicitMain ?? pairs[0];
-  const favourite: 'HOME' | 'AWAY' = selected.home.handicap < 0 ? 'HOME' : 'AWAY';
-
-  // 1X2 is only a safety cross-check. If it clearly disagrees with the first
-  // Asian line, do not guess — mark handicap unverified.
+  const favourite =
+    home.handicap < 0 && away.handicap > 0 ? 'HOME'
+    : away.handicap < 0 && home.handicap > 0 ? 'AWAY'
+    : null;
+  if (!favourite) return null;
   if (moneylineFav && moneylineFav !== favourite) return null;
 
   return {
     favourite,
-    handicap: favourite === 'HOME' ? selected.home.handicap : selected.away.handicap,
-    pairIndex: Math.min(selected.home.index, selected.away.index),
+    handicap: favourite === 'HOME' ? home.handicap : away.handicap,
   };
 }
 
@@ -210,7 +207,7 @@ function parseOdds(item: any, bookmakerId: number) {
     handicapVerified: Boolean(handicap),
     bookmakerId,
     bookmakerName: bookmaker.name,
-    oddsParserVersion: 'MARKETv5',
+    oddsParserVersion: 'SAFEv6',
   };
 }
 
@@ -230,7 +227,7 @@ async function resolveBet365BookmakerId() {
 
 async function fetchFixtureOdds(fixtureId: number) {
   const bookmakerId = await resolveBet365BookmakerId();
-  const cacheKey = `odds-v5-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
+  const cacheKey = `odds-v6-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
   const cached = readCache<ReturnType<typeof parseOdds>>(cacheKey);
   if (cached) return cached;
 
@@ -282,7 +279,9 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
   const scoreHome = Number(fixture.goals?.home ?? 0);
   const scoreAway = Number(fixture.goals?.away ?? 0);
 
-  const favouriteLosing = odds.favourite === 'HOME' ? scoreHome < scoreAway : scoreAway < scoreHome;
+  const favouriteLosing = odds.handicapVerified
+    ? (odds.favourite === 'HOME' ? scoreHome < scoreAway : scoreAway < scoreHome)
+    : false;
 
   return {
     id: String(fixture.fixture?.id),
@@ -306,7 +305,7 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'MARKETv5 verified' : 'MARKETv5 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'SAFEv6 verified' : 'SAFEv6 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
