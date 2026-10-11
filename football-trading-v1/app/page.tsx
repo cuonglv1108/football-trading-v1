@@ -64,17 +64,25 @@ function isWatchExpired(match: TradingMatch, now: number = Date.now()) {
     now - kickoff >= ARCHIVE_AFTER_MS;
 }
 
+function formatCountdown(minutes: number) {
+  const total = Math.max(1, Math.ceil(minutes));
+  if (total < 60) return `${total}m`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
 function nextCheckpoint(match: TradingMatch) {
-  if (!match.kickoff) return 'Checkpoint';
+  if (!match.kickoff) return 'HT timing unavailable';
   const kickoff = new Date(match.kickoff).getTime();
   const now = Date.now();
   const min = (now - kickoff) / 60000;
 
-  if (min < 38) return `40' check in ${Math.max(1, Math.ceil(38 - min))}m`;
-  if (min < 48) return "40' CHECK DUE";
-  if (min < 60) return 'HT CHECK DUE';
-  if (min < 105) return 'H2 checkpoint';
-  return 'Check result';
+  if (min < 43) return `HT check in ${formatCountdown(43 - min)}`;
+  if (min <= 85 && match.htVerified !== true) return 'HT CHECK NOW';
+  if (min < 105) return match.htVerified ? 'H2 monitoring' : 'HT retry window';
+  if (match.ftVerified !== true) return 'FT CHECK DUE';
+  return 'Completed';
 }
 
 export default function Home() {
@@ -397,8 +405,8 @@ export default function Home() {
       });
       const data = await res.json();
 
-      if (data.providerStatus === 'API_FOOTBALL_KEY_MISSING') {
-        setNotice('HT Check is ready, but OPENAI_API_KEY is not connected yet.');
+      if (data.providerStatus === 'HT_DATA_PROVIDER_MISSING' || data.providerStatus === 'API_FOOTBALL_KEY_MISSING') {
+        setNotice('API-Football is not configured for automatic HT verification.');
         return;
       }
       if (data.providerStatus !== 'CONNECTED') {
@@ -588,8 +596,7 @@ export default function Home() {
 
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      setNotice('Alerts enabled ✓');
-      window.setTimeout(() => setNotice(''), 2200);
+      setNotice('Alerts permission enabled on this device.');
     } else if (permission === 'denied') {
       setNotice('Alerts are blocked in device/browser settings.');
     } else {
@@ -600,9 +607,7 @@ export default function Home() {
   const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock)) : view === 'HISTORY' ? history : matches.filter(m => !isWatchExpired(m, clock));
   const filtered = useMemo(() => {
     let rows = league === 'ALL' ? source : source.filter(m => m.league === league);
-    if (view !== 'HISTORY' && selectedDay === 'LIVE') {
-      rows = rows.filter(m => m.status === 'LIVE' || m.status === 'HT');
-    } else if (view !== 'HISTORY' && selectedDay !== 'ALL') {
+    if (view !== 'HISTORY' && selectedDay !== 'ALL') {
       rows = rows.filter(m => m.kickoff && localDayKey(m.kickoff) === selectedDay);
     }
     return rows;
@@ -610,7 +615,11 @@ export default function Home() {
 
   const dates = useMemo(() => dayRail(clock), [clock]);
 
-  const dueCount = starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock) && /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
+  const dueCount = starred.filter(m =>
+    m.status !== 'FT' &&
+    !isWatchExpired(m, clock) &&
+    (dueForPhase(m, 'HT') || dueForPhase(m, 'FT'))
+  ).length;
   const triggerCount = starred.filter(m => m.state === 'TRIGGER').length;
   const qualifiedCount = matches.filter(m => m.state === 'QUALIFIED').length;
 
@@ -640,11 +649,10 @@ export default function Home() {
 
       {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
 
-      <section className="statusStrip">
-        <span><b>{qualifiedCount}</b> qualified</span>
-        <span><b>{starred.length}</b> saved</span>
-        <span className={dueCount > 0 ? 'dueHot' : ''}><b>{dueCount}</b> due now</span>
-        <span className="providerPill">{providerStatus === 'CONNECTED' ? '● API live' : '○ API'}</span>
+      <section className="summary">
+        <div><span>Qualified</span><strong>{qualifiedCount}</strong></div>
+        <div><span>Saved</span><strong>{starred.length}</strong></div>
+        <div><span>Due now</span><strong>{dueCount}</strong></div>
       </section>
 
       <nav className="mainTabs">
@@ -655,17 +663,14 @@ export default function Home() {
 
       {view !== 'HISTORY' && (
         <nav className="dateRail">
-          <button className={selectedDay === 'LIVE' ? 'active liveDay' : 'liveDay'} onClick={() => setSelectedDay('LIVE')}>
-            <strong>LIVE</strong><span>NOW</span>
+          <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
+            <strong>ALL</strong><span>72H</span>
           </button>
           {dates.map(item => (
             <button key={item.key} className={selectedDay === item.key ? 'active' : ''} onClick={() => setSelectedDay(item.key)}>
               <strong>{item.dow}</strong><span>{item.date}</span>
             </button>
           ))}
-          <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
-            <strong>ALL</strong><span>72H</span>
-          </button>
         </nav>
       )}
 
@@ -712,20 +717,15 @@ export default function Home() {
         </>
       )}
 
-      {view !== 'HISTORY' && (
-        <div className="feedHeader">
-          <div>
-            <span>{view === 'STARRED' ? 'MY MATCHES' : 'V1 DISCOVER'}</span>
-            <strong>{filtered.length} {filtered.length === 1 ? 'match' : 'matches'}</strong>
-          </div>
-          <small>{selectedDay === 'LIVE' ? 'Live only' : selectedDay === 'ALL' ? 'Next 72 hours' : 'Selected day'}</small>
-        </div>
-      )}
-
       <section className="matchList">
         {filtered.length > 0 ? filtered.map(match => (
           <div key={`${match.id}-${view}-${match.checkedAt}`}>
-            {view === 'STARRED' && <div className="checkpointLabel">{nextCheckpoint(match)}</div>}
+            {view === 'STARRED' && (
+              <div className={`checkpointLabel ${dueForPhase(match, 'HT') || dueForPhase(match, 'FT') ? 'due' : ''}`}>
+                <span>NEXT CHECK</span>
+                <b>{nextCheckpoint(match)}</b>
+              </div>
+            )}
             <MatchCard
               match={match}
               starred={starred.some(m => m.id === match.id)}
@@ -733,6 +733,7 @@ export default function Home() {
               onCheckpoint={view !== 'HISTORY' ? setCheckpoint : undefined}
               onHtCheck={view === 'STARRED' ? runHtCheck : undefined}
               htLoading={htLoadingId === match.id}
+              htCheckReady={view === 'STARRED' && dueForPhase(match, 'HT')}
               compact={view === 'HISTORY'}
             />
           </div>
@@ -796,7 +797,7 @@ export default function Home() {
 
       <footer>
         <span>Structured football feed · V1 rules local</span>
-        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Provider cache empty'}</span>
+        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for provider refresh'}</span>
         {nextRefreshAt && <span>{`Provider cache until ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
         {scanStatus && <span>{`Scan ${scanStatus}${scanCoverage ? ` · ${scanCoverage}` : ''}`}</span>}
         {budgetStatus && <span>{budgetStatus}</span>}
