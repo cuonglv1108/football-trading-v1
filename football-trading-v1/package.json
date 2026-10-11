@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node scripts/test5dollar.mjs && next start"
+    "start": "next start"
   },
   "dependencies": {
     "next": "15.5.24",
