@@ -14,8 +14,9 @@ export type VerifiedHtSnapshot = {
   scoreAway: number;
   cornersHome: number;
   cornersAway: number;
-  liveGoalLine: null;
-  liveCornerLine: null;
+  liveGoalLine: number | null;
+  liveCornerLine: number | null;
+  missingInputs?: string[];
   sourceSummary: string;
   sourceUrls: string[];
   checkedAt: string;
@@ -48,6 +49,67 @@ async function apiGet(url: string, key: string): Promise<any[]> {
   const data = await r.json();
   if (data.errors && Object.keys(data.errors).length) throw new Error('API-Football provider rejected request');
   return Array.isArray(data.response) ? data.response : [];
+}
+
+function numberFromText(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.abs(value);
+  if (typeof value !== 'string') return null;
+  const m = value.match(/-?\d+(?:\.\d+)?/);
+  return m ? Math.abs(Number(m[0])) : null;
+}
+
+function collectBets(node: unknown, out: Array<{ name: string; values: any[] }> = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    for (const item of node) collectBets(item, out);
+    return out;
+  }
+  const obj = node as Record<string, unknown>;
+  if (typeof obj.name === 'string' && Array.isArray(obj.values)) {
+    out.push({ name: obj.name, values: obj.values as any[] });
+  }
+  for (const value of Object.values(obj)) collectBets(value, out);
+  return out;
+}
+
+function balancedLiveLine(values: any[]): number | null {
+  const candidates = new Map<number, { over?: number; under?: number; main?: boolean }>();
+  for (const value of values ?? []) {
+    const label = String(value?.value ?? value?.name ?? '');
+    const line = numberFromText(value?.handicap ?? label);
+    if (line == null) continue;
+    const odd = Number(value?.odd ?? value?.price);
+    const slot = candidates.get(line) ?? {};
+    if (/over/i.test(label)) slot.over = Number.isFinite(odd) ? odd : 1.9;
+    if (/under/i.test(label)) slot.under = Number.isFinite(odd) ? odd : 1.9;
+    if (value?.main === true) slot.main = true;
+    candidates.set(line, slot);
+  }
+
+  let best: { line: number; score: number } | null = null;
+  for (const [line, pair] of candidates) {
+    if (pair.over == null || pair.under == null) continue;
+    const score = (pair.main ? -1 : 0) + Math.abs(pair.over - pair.under) +
+      Math.abs(pair.over - 1.9) * 0.2 + Math.abs(pair.under - 1.9) * 0.2;
+    if (!best || score < best.score) best = { line, score };
+  }
+  return best?.line ?? null;
+}
+
+async function fetchLiveH2Lines(fixtureId: number, key: string) {
+  try {
+    const rows = await apiGet(`/odds/live?fixture=${fixtureId}`, key);
+    const bets = collectBets(rows);
+    const secondHalf = (name: string) => /second\s*half|2nd\s*half|2nd\s*h|\bh2\b/i.test(name);
+    const goalBet = bets.find(b => secondHalf(b.name) && !/corner/i.test(b.name) && /goal|total|over.*under|over\/under/i.test(b.name));
+    const cornerBet = bets.find(b => secondHalf(b.name) && /corner/i.test(b.name) && /total|over|under/i.test(b.name));
+    return {
+      liveGoalLine: goalBet ? balancedLiveLine(goalBet.values) : null,
+      liveCornerLine: cornerBet ? balancedLiveLine(cornerBet.values) : null,
+    };
+  } catch {
+    return { liveGoalLine: null, liveCornerLine: null };
+  }
 }
 async function reserveAttempt(id: string, now: number): Promise<boolean> {
   let attempts: Record<string, number> = {};
@@ -135,15 +197,22 @@ export async function fetchVerifiedHt(match: TradingMatch): Promise<HtResult> {
       providerStatus: 'HT_NOT_VERIFIED',
       advice: 'HT statistics are incomplete for one/both teams. Missing corners must never be assumed to be zero.',
     };
+    const liveLines = await fetchLiveH2Lines(id!, key);
+    const missingInputs: string[] = [];
+    if (liveLines.liveGoalLine == null) missingInputs.push('Exact H2 goal line');
+    if (liveLines.liveCornerLine == null) missingInputs.push('Exact H2 corner line');
+
     return {
       providerStatus: 'CONNECTED',
       snapshot: {
         scoreHome: scoreHome!, scoreAway: scoreAway!,
         cornersHome, cornersAway,
-        liveGoalLine: null, liveCornerLine: null,
+        liveGoalLine: liveLines.liveGoalLine,
+        liveCornerLine: liveLines.liveCornerLine,
+        missingInputs,
         checkedAt: new Date().toISOString(),
         htVerified: true, htSourceType: 'API_FOOTBALL',
-        sourceSummary: `API-Football fixture ${id}: confirmed HT status, halftime score, and both teams' corner statistics`,
+        sourceSummary: `API-Football fixture ${id}: confirmed HT score/corners${liveLines.liveGoalLine != null || liveLines.liveCornerLine != null ? ' + live H2 odds' : ''}`,
         sourceUrls: [],
       },
     };
