@@ -74,28 +74,33 @@ function numberFrom(value: unknown): number | null {
   return nums[nums.length - 1];
 }
 
-function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: string }> = []): number | null {
-  const byLine = new Map<number, { over?: number; under?: number }>();
+function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: string; main?: boolean | null }> = []): number | null {
+  type Quote = { side: 'OVER' | 'UNDER'; line: number; main: boolean; index: number };
+  const quotes: Quote[] = [];
 
-  for (const item of values) {
+  values.forEach((item, index) => {
     const text = String(item.value ?? '');
+    const side: Quote['side'] | null = /over/i.test(text) ? 'OVER' : /under/i.test(text) ? 'UNDER' : null;
     const line = numberFrom(item.handicap ?? text);
-    const odd = Number(item.odd);
-    if (line === null || !Number.isFinite(odd)) continue;
+    if (!side || line === null) return;
+    quotes.push({ side, line: Math.abs(line), main: item.main === true, index });
+  });
 
-    const slot = byLine.get(Math.abs(line)) ?? {};
-    if (/over/i.test(text)) slot.over = odd;
-    if (/under/i.test(text)) slot.under = odd;
-    byLine.set(Math.abs(line), slot);
+  const pairs: Array<{ over: Quote; under: Quote }> = [];
+  for (let i = 0; i < quotes.length; i++) {
+    const first = quotes[i];
+    const second = quotes[i + 1];
+    if (!second) continue;
+    const over = first.side === 'OVER' ? first : second.side === 'OVER' ? second : null;
+    const under = first.side === 'UNDER' ? first : second.side === 'UNDER' ? second : null;
+    if (!over || !under) continue;
+    if (Math.abs(over.line - under.line) > 0.001) continue;
+    pairs.push({ over, under });
   }
 
-  let best: { line: number; score: number } | null = null;
-  for (const [line, pair] of byLine) {
-    if (!pair.over || !pair.under) continue;
-    const score = Math.abs(pair.over - pair.under) + Math.abs(pair.over - 1.9) * 0.25 + Math.abs(pair.under - 1.9) * 0.25;
-    if (!best || score < best.score) best = { line, score };
-  }
-  return best?.line ?? null;
+  if (!pairs.length) return null;
+  const explicitMain = pairs.find(p => p.over.main && p.under.main);
+  return (explicitMain ?? pairs[0]).over.line;
 }
 
 function moneylineFavourite(bets: any[]): 'HOME' | 'AWAY' | null {
@@ -205,7 +210,7 @@ function parseOdds(item: any, bookmakerId: number) {
     handicapVerified: Boolean(handicap),
     bookmakerId,
     bookmakerName: bookmaker.name,
-    oddsParserVersion: 'AHv4',
+    oddsParserVersion: 'MARKETv5',
   };
 }
 
@@ -225,7 +230,7 @@ async function resolveBet365BookmakerId() {
 
 async function fetchFixtureOdds(fixtureId: number) {
   const bookmakerId = await resolveBet365BookmakerId();
-  const cacheKey = `odds-v4-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
+  const cacheKey = `odds-v5-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
   const cached = readCache<ReturnType<typeof parseOdds>>(cacheKey);
   if (cached) return cached;
 
@@ -301,7 +306,7 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'AHv4 verified' : 'AHv4 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'MARKETv5 verified' : 'MARKETv5 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
