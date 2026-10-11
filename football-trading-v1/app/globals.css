@@ -696,3 +696,158 @@ footer {
 }
 .htQuickBtn:disabled { cursor:default; opacity:.72; }
 .htQuickBtn.ready:disabled { opacity:.65; }
+
+
+/* user-requested UI fixes: keep current layout, improve readability */
+.mainTabs {
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+}
+.mainTabs button {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  font-size: 15px !important;
+  padding: 13px 12px !important;
+}
+.mainTabs button.active {
+  background: #f2f3f5 !important;
+  color: #090a0b !important;
+  border-color: #f2f3f5 !important;
+}
+
+.dateRail {
+  gap: 9px !important;
+  padding-bottom: 13px !important;
+}
+.dateRail button {
+  flex: 0 0 86px !important;
+  min-height: 70px !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+}
+.dateRail button strong {
+  font-size: 15px !important;
+  font-weight: 950 !important;
+  letter-spacing: .035em !important;
+}
+.dateRail button span {
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  opacity: .9 !important;
+}
+.dateRail button.active {
+  background: #f2f3f5 !important;
+  color: #090a0b !important;
+  border-color: #f2f3f5 !important;
+}
+
+.leagueTabs {
+  gap: 9px !important;
+  padding-bottom: 14px !important;
+}
+.leagueTabs button {
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  padding: 10px 15px !important;
+}
+.leagueTabs button.active {
+  background: #f2f3f5 !important;
+  color: #090a0b !important;
+  border-color: #f2f3f5 !important;
+}
+
+.matchCompactRow {
+  grid-template-columns: 88px minmax(0,1fr) 38px !important;
+  gap: 11px !important;
+}
+.matchTimeBlock {
+  min-width: 0 !important;
+  padding-right: 9px !important;
+}
+.matchTimeBlock strong {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+  font-size: 15px !important;
+  line-height: 1.05 !important;
+  letter-spacing: -.02em !important;
+}
+.matchTimeBlock span {
+  color: #d4d8dd !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  letter-spacing: .04em !important;
+}
+.compactKickoff {
+  margin-left: 99px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  color: #c6cbd2 !important;
+  opacity: .95 !important;
+}
+
+.quickAction {
+  min-width: 46px !important;
+  min-height: 42px !important;
+  padding: 0 11px !important;
+  font-size: 15px !important;
+  font-weight: 950 !important;
+}
+.refreshAction {
+  min-height: 42px !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  font-weight: 950 !important;
+  white-space: nowrap !important;
+}
+.iconAction {
+  min-height: 42px !important;
+}
+
+@media (max-width:560px) {
+  .mainTabs { grid-template-columns:1fr 1fr !important; }
+  .mainTabs button { font-size:14px !important; padding:12px 10px !important; }
+
+  .dateRail button {
+    flex-basis: 82px !important;
+    min-height: 66px !important;
+  }
+  .dateRail button strong { font-size:14px !important; }
+  .dateRail button span { font-size:12px !important; }
+
+  .leagueTabs button {
+    font-size:13px !important;
+    padding:9px 13px !important;
+  }
+
+  .matchCompactRow {
+    grid-template-columns: 82px minmax(0,1fr) 34px !important;
+    gap: 9px !important;
+  }
+  .matchTimeBlock strong { font-size:14px !important; }
+  .matchTimeBlock span { font-size:10px !important; }
+  .compactKickoff {
+    margin-left: 91px !important;
+    font-size: 11px !important;
+  }
+
+  .headerActions { gap:4px !important; }
+  .quickAction {
+    min-width:42px !important;
+    min-height:40px !important;
+    padding:0 8px !important;
+    font-size:14px !important;
+  }
+  .refreshAction {
+    min-height:40px !important;
+    padding:0 10px !important;
+    font-size:12px !important;
+  }
+  .iconAction {
+    width:36px !important;
+    min-height:40px !important;
+  }
+}
