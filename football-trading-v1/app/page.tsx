@@ -8,7 +8,7 @@ import { buildH2Predictions } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
 const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
-type View = 'SCANNER' | 'STARRED' | 'HISTORY';
+type View = 'STARRED' | 'HISTORY';
 
 const STAR_KEY = 'football-trading-v1-starred';
 const HISTORY_KEY = 'football-trading-v1-history';
@@ -90,7 +90,7 @@ export default function Home() {
   const [starred, setStarred] = useState<TradingMatch[]>([]);
   const [history, setHistory] = useState<TradingMatch[]>([]);
   const [league, setLeague] = useState<'ALL' | League>('ALL');
-  const [view, setView] = useState<View>('SCANNER');
+  const [view, setView] = useState<View>('STARRED');
   const [checkpoint, setCheckpoint] = useState<TradingMatch | null>(null);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
@@ -604,7 +604,9 @@ export default function Home() {
     }
   }
 
-  const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock)) : view === 'HISTORY' ? history : matches.filter(m => !isWatchExpired(m, clock));
+  const source = view === 'HISTORY'
+    ? history
+    : starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock));
   const filtered = useMemo(() => {
     let rows = league === 'ALL' ? source : source.filter(m => m.league === league);
     if (view !== 'HISTORY' && selectedDay !== 'ALL') {
@@ -642,7 +644,7 @@ export default function Home() {
             {batchLoading === 'FT' ? 'FT…' : 'FT'}
           </button>
           <button className="refreshAction" onClick={scanUpcoming} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh 72h'}
+            {loading ? 'Scanning…' : 'Scan 72h'}
           </button>
         </div>
       </header>
@@ -656,8 +658,7 @@ export default function Home() {
       </section>
 
       <nav className="mainTabs">
-        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ My Matches</button>
-        <button className={view === 'SCANNER' ? 'active' : ''} onClick={() => setView('SCANNER')}>Discover</button>
+        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ My Watches</button>
         <button className={view === 'HISTORY' ? 'active' : ''} onClick={() => setView('HISTORY')}>History</button>
       </nav>
 
@@ -741,17 +742,13 @@ export default function Home() {
           <div className="emptyState">
             <strong>
               {view === 'STARRED'
-                ? 'No V1 matches in ★ yet'
-                : view === 'HISTORY'
-                  ? 'No checkpoint history yet'
-                  : loading ? 'Scanning upcoming matches…' : 'No qualifying matches found'}
+                ? (loading ? 'Scanning upcoming matches…' : 'No V1 matches in ★ yet')
+                : 'No checkpoint history yet'}
             </strong>
             <span>
               {view === 'STARRED'
-                ? 'Qualified V1 fixtures you save will stay here until FT.'
-                : view === 'HISTORY'
-                  ? 'Checkpoint snapshots will appear here.'
-                  : 'Refresh 72h to load structured fixtures and verified pre-match markets.'}
+                ? 'Tap Scan 72h to load qualified fixtures. Saved V1 matches stay here until FT.'
+                : 'Checkpoint snapshots will appear here.'}
             </span>
           </div>
         )}
