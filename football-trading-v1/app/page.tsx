@@ -52,7 +52,7 @@ function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
     typeof row.sourceSummary === 'string' &&
     row.sourceSummary.startsWith('API-Football ·');
 
-  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('AHv3 verified');
+  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('AHv4 verified');
   if (!providerRecord || hasSafeAsianParser) return row;
 
   // Any provider handicap produced before AHv3 is unsafe for HT decisions.
@@ -61,7 +61,7 @@ function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
     handicapVerified: false,
     favouriteCoveringHandicap: false,
     favouriteLosing: false,
-    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — AHv3 rescan required`,
+    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — AHv4 rescan required`,
   };
 }
 
