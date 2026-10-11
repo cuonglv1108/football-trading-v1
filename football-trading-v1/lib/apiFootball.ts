@@ -101,7 +101,7 @@ function parseHandicap(values: Array<{ value?: string; odd?: string; handicap?: 
     if (!best || score < best.score) best = { favourite: side, handicap, score };
   }
 
-  return best ?? { favourite: 'HOME' as const, handicap: 0 };
+  return best;
 }
 
 function parseOdds(item: any) {
@@ -110,7 +110,7 @@ function parseOdds(item: any) {
 
   const bets = bookmaker.bets ?? [];
   const goalsBet = bets.find((b: any) => /goals over\/under/i.test(b?.name ?? '') && !/half|home|away/i.test(b?.name ?? ''));
-  const cornersBet = bets.find((b: any) => /corners over under|total corners/i.test(b?.name ?? '') && !/home|away|half/i.test(b?.name ?? ''));
+  const cornersBet = bets.find((b: any) => /corner/i.test(b?.name ?? '') && /over|under|total/i.test(b?.name ?? '') && !/home|away|half|team/i.test(b?.name ?? ''));
   const handicapBet = bets.find((b: any) => /asian handicap/i.test(b?.name ?? '') && !/half/i.test(b?.name ?? ''));
 
   const goalLine = balancedLine(goalsBet?.values);
@@ -121,8 +121,9 @@ function parseOdds(item: any) {
   return {
     goalLine,
     cornerLine,
-    favourite: handicap.favourite,
-    handicap: handicap.handicap,
+    favourite: handicap?.favourite ?? ('HOME' as const),
+    handicap: handicap?.handicap ?? 0,
+    handicapVerified: Boolean(handicap),
   };
 }
 
@@ -186,6 +187,8 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     league,
     home: fixture.teams?.home?.name ?? 'Home',
     away: fixture.teams?.away?.name ?? 'Away',
+    homeLogo: fixture.teams?.home?.logo ?? null,
+    awayLogo: fixture.teams?.away?.logo ?? null,
     minute: fixture.fixture?.status?.elapsed ?? null,
     status,
     kickoff: fixture.fixture?.date ?? null,
@@ -197,9 +200,12 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     prematchGoalLine: odds.goalLine,
     favourite: odds.favourite,
     handicap: odds.handicap,
+    handicapVerified: odds.handicapVerified,
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
+    sourceSummary: `API-Football · Bet365 pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceUrls: [],
   };
 }
 
