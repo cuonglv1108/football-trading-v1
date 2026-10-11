@@ -184,11 +184,10 @@ function parseHandicap(
   };
 }
 
-function parseOdds(item: any, bookmakerId: number) {
-  const bookmaker = (item?.bookmakers ?? []).find((b: any) => b?.id === bookmakerId && /^bet365$/i.test(String(b?.name ?? '').trim()));
-  if (!bookmaker) return null;
+function parseBookmakerOdds(bookmaker: any) {
+  if (!bookmaker || !Array.isArray(bookmaker.bets)) return null;
 
-  const bets = bookmaker.bets ?? [];
+  const bets = bookmaker.bets;
   const goalsBet = bets.find((b: any) => /goals over\/under/i.test(b?.name ?? '') && !/half|home|away/i.test(b?.name ?? ''));
   const cornersBet = bets.find((b: any) => /corner/i.test(b?.name ?? '') && /over|under|total/i.test(b?.name ?? '') && !/home|away|half|team/i.test(b?.name ?? ''));
   const handicapBet = bets.find((b: any) => /asian handicap/i.test(b?.name ?? '') && !/half/i.test(b?.name ?? ''));
@@ -200,16 +199,40 @@ function parseOdds(item: any, bookmakerId: number) {
   const marketFavourite = moneylineFavourite(bets);
   const handicap = parseHandicap(handicapBet?.values, marketFavourite);
   const favourite: 'HOME' | 'AWAY' = handicap?.favourite ?? 'HOME';
+
   return {
     goalLine,
     cornerLine,
     favourite,
     handicap: handicap?.handicap ?? 0,
     handicapVerified: Boolean(handicap),
-    bookmakerId,
-    bookmakerName: bookmaker.name,
-    oddsParserVersion: 'SAFEv6',
+    bookmakerId: Number(bookmaker.id),
+    bookmakerName: String(bookmaker.name ?? 'Unknown bookmaker'),
+    oddsParserVersion: 'SAFEv7',
   };
+}
+
+function parsePreferredBookmaker(item: any, bookmakerId: number) {
+  const bookmaker = (item?.bookmakers ?? []).find(
+    (b: any) => b?.id === bookmakerId && /^bet365$/i.test(String(b?.name ?? '').trim())
+  );
+  return parseBookmakerOdds(bookmaker);
+}
+
+function fallbackBookmakerRank(name: string) {
+  const n = name.toLowerCase();
+  const preferred = [
+    'pinnacle',
+    'betano',
+    'unibet',
+    'william hill',
+    'betfair',
+    'bwin',
+    'betway',
+    '1xbet',
+  ];
+  const idx = preferred.findIndex(x => n.includes(x));
+  return idx === -1 ? 999 : idx;
 }
 
 async function resolveBet365BookmakerId() {
@@ -228,16 +251,53 @@ async function resolveBet365BookmakerId() {
 
 async function fetchFixtureOdds(fixtureId: number) {
   const bookmakerId = await resolveBet365BookmakerId();
-  const cacheKey = `odds-v6-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
-  const cached = readCache<ReturnType<typeof parseOdds>>(cacheKey);
-  if (cached) return cached;
+  const cacheKey = `odds-v7-fixture-${fixtureId}`;
+  const cached = readCache<any>(cacheKey);
+  if (cached !== null) return cached;
 
-  const data = await apiGet<any>(`/odds?fixture=${fixtureId}&bookmaker=${bookmakerId}`);
-  const parsed = (data.response ?? []).map((item: any) => parseOdds(item, bookmakerId)).find(Boolean) ?? null;
+  // 1) Prefer Bet365 when it exposes BOTH FT goals and FT total-corners markets.
+  const bet365Data = await apiGet<any>(`/odds?fixture=${fixtureId}&bookmaker=${bookmakerId}`);
+  const bet365Parsed = (bet365Data.response ?? [])
+    .map((item: any) => parsePreferredBookmaker(item, bookmakerId))
+    .find(Boolean);
 
-  // Pre-match odds are cached, but the bookmaker identity and handicap side are now verified.
-  writeCache(cacheKey, parsed, 3 * 60 * 60 * 1000);
-  return parsed;
+  if (bet365Parsed) {
+    const result = { ...bet365Parsed, sourceTier: 'BET365' as const };
+    writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
+    return result;
+  }
+
+  // 2) API-Football explicitly notes that odds availability varies by fixture/bookmaker.
+  // If Bet365 is missing one V1 market, inspect other bookmakers instead of silently
+  // dropping the fixture. Goals + corners must come from the SAME bookmaker.
+  const candidates: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const data = await apiGet<any>(`/odds?fixture=${fixtureId}&page=${page}`);
+    totalPages = Math.max(1, Number(data.paging?.total ?? 1));
+
+    for (const item of data.response ?? []) {
+      for (const bookmaker of item?.bookmakers ?? []) {
+        const parsed = parseBookmakerOdds(bookmaker);
+        if (parsed) candidates.push(parsed);
+      }
+    }
+
+    page += 1;
+  } while (page <= totalPages && page <= 4);
+
+  candidates.sort((a, b) => {
+    const rankDiff = fallbackBookmakerRank(a.bookmakerName) - fallbackBookmakerRank(b.bookmakerName);
+    if (rankDiff !== 0) return rankDiff;
+    return a.bookmakerName.localeCompare(b.bookmakerName);
+  });
+
+  const fallback = candidates[0] ?? null;
+  const result = fallback ? { ...fallback, sourceTier: 'FALLBACK' as const } : null;
+  writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
+  return result;
 }
 
 function cornerCount(statistics: any): { home: number; away: number } {
@@ -306,18 +366,36 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'SAFEv6 verified' : 'SAFEv6 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv7 AH verified' : 'SAFEv7 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
 
-export async function getApiFootballMatches(): Promise<TradingMatch[]> {
+export type ApiFootballMarketAudit = {
+  fixtureId: string;
+  league: League;
+  home: string;
+  away: string;
+  kickoff: string | null;
+  marketStatus: 'VERIFIED' | 'MISSING_COMPLETE_MARKETS';
+  bookmaker?: string;
+};
+
+export type ApiFootballScanResult = {
+  matches: TradingMatch[];
+  fixturesFound: number;
+  fixturesWithCompleteMarkets: number;
+  missingMarketCount: number;
+  audit: ApiFootballMarketAudit[];
+};
+
+export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
   const season = Number(process.env.API_FOOTBALL_SEASON ?? new Date().getFullYear());
   const now = Date.now();
   const horizonMs = Number(process.env.PREMATCH_SCAN_HOURS ?? 72) * 60 * 60 * 1000;
   const horizon = now + horizonMs;
 
-  const upcomingByLeague = await Promise.all(
+  const leagueResults = await Promise.all(
     (Object.entries(LEAGUES) as Array<[League, number]>).map(async ([league, leagueId]) => {
       const fixtures = await fetchLeagueFixtures(league, leagueId, season);
 
@@ -326,24 +404,68 @@ export async function getApiFootballMatches(): Promise<TradingMatch[]> {
         return kickoff >= now && kickoff <= horizon;
       });
 
-      const matches = await Promise.all(
+      const rows = await Promise.all(
         upcoming.map(async (fixture: any) => {
           const fixtureId = Number(fixture.fixture?.id);
-          if (!Number.isFinite(fixtureId)) return null;
+          const auditBase = {
+            fixtureId: String(fixture.fixture?.id ?? ''),
+            league,
+            home: fixture.teams?.home?.name ?? 'Home',
+            away: fixture.teams?.away?.name ?? 'Away',
+            kickoff: fixture.fixture?.date ?? null,
+          };
+
+          if (!Number.isFinite(fixtureId)) {
+            return {
+              match: null,
+              audit: { ...auditBase, marketStatus: 'MISSING_COMPLETE_MARKETS' as const },
+            };
+          }
 
           const odds = await fetchFixtureOdds(fixtureId);
-          if (!odds) return null;
+          if (!odds) {
+            return {
+              match: null,
+              audit: { ...auditBase, marketStatus: 'MISSING_COMPLETE_MARKETS' as const },
+            };
+          }
 
           const match = fixtureToBase(league, fixture, odds);
-          return { ...match, ...evaluateV1(match) };
+          return {
+            match: { ...match, ...evaluateV1(match) } as TradingMatch,
+            audit: {
+              ...auditBase,
+              marketStatus: 'VERIFIED' as const,
+              bookmaker: odds.bookmakerName,
+            },
+          };
         })
       );
 
-      return matches.filter(Boolean) as TradingMatch[];
+      return { fixtureCount: upcoming.length, rows };
     })
   );
 
-  return upcomingByLeague
-    .flat()
-    .sort((a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime());
+  const allRows = leagueResults.flatMap(r => r.rows);
+  const matches = allRows
+    .map(r => r.match)
+    .filter(Boolean) as TradingMatch[];
+
+  matches.sort((a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime());
+
+  const audit = allRows.map(r => r.audit);
+  const fixturesFound = leagueResults.reduce((sum, r) => sum + r.fixtureCount, 0);
+  const fixturesWithCompleteMarkets = audit.filter(a => a.marketStatus === 'VERIFIED').length;
+
+  return {
+    matches,
+    fixturesFound,
+    fixturesWithCompleteMarkets,
+    missingMarketCount: Math.max(0, fixturesFound - fixturesWithCompleteMarkets),
+    audit,
+  };
+}
+
+export async function getApiFootballMatches(): Promise<TradingMatch[]> {
+  return (await getApiFootballScan()).matches;
 }
