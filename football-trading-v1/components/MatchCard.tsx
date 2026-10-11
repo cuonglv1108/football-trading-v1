@@ -95,6 +95,12 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       )}
 
+      <div className="marketStrip">
+        <span><small>C</small><b>{match.prematchCornerLine}</b></span>
+        <span><small>G</small><b>{match.prematchGoalLine}</b></span>
+        <span><small>AH</small><b>{handicapText}</b></span>
+      </div>
+
       {match.watchStatus === 'EXPIRED_UNVERIFIED' && (
         <div className="htAdvice">
           <b>ARCHIVED · FT NOT VERIFIED</b>
@@ -127,16 +133,14 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
       )}
 
       <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
-        {expanded ? 'Hide analysis' : compact ? 'View analysis & result' : 'View details'}
+        {expanded ? 'Hide' : compact ? 'Analysis & result' : 'Details'}
       </button>
 
       {expanded && (
         <>
           <div className="metrics">
-            <div><span>Corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
-            <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
-            <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
-            <div><span>FT handicap</span><b>{handicapText}</b></div>
+            <div><span>Current corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
+            <div><span>V1 state</span><b>{match.state ?? 'WATCHING'}</b></div>
           </div>
 
           {match.sourceSummary && (
