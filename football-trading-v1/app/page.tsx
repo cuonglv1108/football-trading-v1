@@ -588,7 +588,8 @@ export default function Home() {
 
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      setNotice('Alerts permission enabled on this device.');
+      setNotice('Alerts enabled ✓');
+      window.setTimeout(() => setNotice(''), 2200);
     } else if (permission === 'denied') {
       setNotice('Alerts are blocked in device/browser settings.');
     } else {
@@ -599,7 +600,9 @@ export default function Home() {
   const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock)) : view === 'HISTORY' ? history : matches.filter(m => !isWatchExpired(m, clock));
   const filtered = useMemo(() => {
     let rows = league === 'ALL' ? source : source.filter(m => m.league === league);
-    if (view !== 'HISTORY' && selectedDay !== 'ALL') {
+    if (view !== 'HISTORY' && selectedDay === 'LIVE') {
+      rows = rows.filter(m => m.status === 'LIVE' || m.status === 'HT');
+    } else if (view !== 'HISTORY' && selectedDay !== 'ALL') {
       rows = rows.filter(m => m.kickoff && localDayKey(m.kickoff) === selectedDay);
     }
     return rows;
@@ -637,10 +640,11 @@ export default function Home() {
 
       {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
 
-      <section className="summary">
-        <div><span>Qualified</span><strong>{qualifiedCount}</strong></div>
-        <div><span>Saved</span><strong>{starred.length}</strong></div>
-        <div><span>Due now</span><strong>{dueCount}</strong></div>
+      <section className="statusStrip">
+        <span><b>{qualifiedCount}</b> qualified</span>
+        <span><b>{starred.length}</b> saved</span>
+        <span className={dueCount > 0 ? 'dueHot' : ''}><b>{dueCount}</b> due now</span>
+        <span className="providerPill">{providerStatus === 'CONNECTED' ? '● API live' : '○ API'}</span>
       </section>
 
       <nav className="mainTabs">
@@ -651,14 +655,17 @@ export default function Home() {
 
       {view !== 'HISTORY' && (
         <nav className="dateRail">
-          <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
-            <strong>ALL</strong><span>72H</span>
+          <button className={selectedDay === 'LIVE' ? 'active liveDay' : 'liveDay'} onClick={() => setSelectedDay('LIVE')}>
+            <strong>LIVE</strong><span>NOW</span>
           </button>
           {dates.map(item => (
             <button key={item.key} className={selectedDay === item.key ? 'active' : ''} onClick={() => setSelectedDay(item.key)}>
               <strong>{item.dow}</strong><span>{item.date}</span>
             </button>
           ))}
+          <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
+            <strong>ALL</strong><span>72H</span>
+          </button>
         </nav>
       )}
 
@@ -703,6 +710,16 @@ export default function Home() {
             </div>
           )}
         </>
+      )}
+
+      {view !== 'HISTORY' && (
+        <div className="feedHeader">
+          <div>
+            <span>{view === 'STARRED' ? 'MY MATCHES' : 'V1 DISCOVER'}</span>
+            <strong>{filtered.length} {filtered.length === 1 ? 'match' : 'matches'}</strong>
+          </div>
+          <small>{selectedDay === 'LIVE' ? 'Live only' : selectedDay === 'ALL' ? 'Next 72 hours' : 'Selected day'}</small>
+        </div>
       )}
 
       <section className="matchList">
@@ -779,8 +796,8 @@ export default function Home() {
 
       <footer>
         <span>Structured football feed · V1 rules local</span>
-        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for provider refresh'}</span>
-        {nextRefreshAt && <span>{`Free refresh after ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
+        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Provider cache empty'}</span>
+        {nextRefreshAt && <span>{`Provider cache until ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
         {scanStatus && <span>{`Scan ${scanStatus}${scanCoverage ? ` · ${scanCoverage}` : ''}`}</span>}
         {budgetStatus && <span>{budgetStatus}</span>}
       </footer>
