@@ -146,7 +146,7 @@ function sideFromValue(value: unknown): 'HOME' | 'AWAY' | null {
 function parseHandicap(
   values: Array<{ value?: string; odd?: string | number; handicap?: string | number; main?: boolean | null }> = [],
   moneylineFav: 'HOME' | 'AWAY' | null
-) {
+): { favourite: 'HOME' | 'AWAY'; handicap: number } | null {
   type Quote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number | null; main: boolean };
   const quotes: Quote[] = [];
 
