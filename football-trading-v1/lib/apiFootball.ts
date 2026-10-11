@@ -2,7 +2,6 @@ import { League, TradingMatch } from './types';
 import { evaluateV1 } from './rules';
 
 const BASE_URL = 'https://v3.football.api-sports.io';
-const BOOKMAKER_ID = 8; // Bet365
 
 const LEAGUES: Record<League, number> = {
   MLS: 253,
@@ -87,25 +86,59 @@ function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: s
   return best?.line ?? null;
 }
 
-function parseHandicap(values: Array<{ value?: string; odd?: string; handicap?: string }> = []) {
-  let best: { favourite: 'HOME' | 'AWAY'; handicap: number; score: number } | null = null;
+function sideFromValue(value: unknown): 'HOME' | 'AWAY' | null {
+  const text = String(value ?? '').trim();
+  if (/^home\b/i.test(text)) return 'HOME';
+  if (/^away\b/i.test(text)) return 'AWAY';
+  return null;
+}
+
+function parseHandicap(values: Array<{ value?: string; odd?: string | number; handicap?: string | number; main?: boolean | null }> = []) {
+  type SideQuote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number; main: boolean };
+  const quotes: SideQuote[] = [];
 
   for (const item of values) {
-    const text = String(item.value ?? '');
+    const side = sideFromValue(item.value);
+    const handicap = numberFrom(item.handicap ?? item.value);
     const odd = Number(item.odd);
-    const handicap = numberFrom(item.handicap ?? text);
-    if (handicap === null || handicap >= 0 || !Number.isFinite(odd)) continue;
 
-    const side: 'HOME' | 'AWAY' = /away|2\b/i.test(text) ? 'AWAY' : 'HOME';
-    const score = Math.abs(odd - 1.9);
-    if (!best || score < best.score) best = { favourite: side, handicap, score };
+    // Safety rule: never infer a team side from arbitrary text/team names.
+    if (!side || handicap === null || !Number.isFinite(odd)) continue;
+    quotes.push({ side, handicap, odd, main: item.main === true });
+  }
+
+  let best: { favourite: 'HOME' | 'AWAY'; handicap: number; score: number } | null = null;
+
+  for (const home of quotes.filter(q => q.side === 'HOME')) {
+    for (const away of quotes.filter(q => q.side === 'AWAY')) {
+      // A valid Asian handicap pair must be opposite sides of the same absolute line.
+      if (Math.abs(Math.abs(home.handicap) - Math.abs(away.handicap)) > 0.001) continue;
+      if (Math.sign(home.handicap) === Math.sign(away.handicap) && home.handicap !== 0) continue;
+
+      const favourite =
+        home.handicap < 0 && away.handicap > 0 ? 'HOME'
+        : away.handicap < 0 && home.handicap > 0 ? 'AWAY'
+        : null;
+      if (!favourite) continue;
+
+      const favQuote = favourite === 'HOME' ? home : away;
+      const score =
+        (home.main && away.main ? -2 : 0) +
+        Math.abs(home.odd - away.odd) +
+        Math.abs(home.odd - 1.9) * 0.25 +
+        Math.abs(away.odd - 1.9) * 0.25;
+
+      if (!best || score < best.score) {
+        best = { favourite, handicap: favQuote.handicap, score };
+      }
+    }
   }
 
   return best;
 }
 
-function parseOdds(item: any) {
-  const bookmaker = (item?.bookmakers ?? []).find((b: any) => b?.id === BOOKMAKER_ID || /bet365/i.test(b?.name ?? ''));
+function parseOdds(item: any, bookmakerId: number) {
+  const bookmaker = (item?.bookmakers ?? []).find((b: any) => b?.id === bookmakerId && /^bet365$/i.test(String(b?.name ?? '').trim()));
   if (!bookmaker) return null;
 
   const bets = bookmaker.bets ?? [];
@@ -124,18 +157,35 @@ function parseOdds(item: any) {
     favourite: handicap?.favourite ?? ('HOME' as const),
     handicap: handicap?.handicap ?? 0,
     handicapVerified: Boolean(handicap),
+    bookmakerId,
+    bookmakerName: bookmaker.name,
   };
 }
 
+async function resolveBet365BookmakerId() {
+  const cacheKey = 'bookmaker-bet365-id';
+  const cached = readCache<number>(cacheKey);
+  if (cached) return cached;
+
+  const data = await apiGet<any>('/odds/bookmakers?search=Bet365');
+  const exact = (data.response ?? []).find((b: any) => /^bet365$/i.test(String(b?.name ?? '').trim()));
+  const id = Number(exact?.id);
+  if (!Number.isFinite(id)) throw new Error('Bet365 bookmaker ID could not be resolved from API-Football');
+
+  writeCache(cacheKey, id, 24 * 60 * 60 * 1000);
+  return id;
+}
+
 async function fetchFixtureOdds(fixtureId: number) {
-  const cacheKey = `odds-fixture-${fixtureId}`;
+  const bookmakerId = await resolveBet365BookmakerId();
+  const cacheKey = `odds-v2-fixture-${fixtureId}-bookmaker-${bookmakerId}`;
   const cached = readCache<ReturnType<typeof parseOdds>>(cacheKey);
   if (cached) return cached;
 
-  const data = await apiGet<any>(`/odds?fixture=${fixtureId}&bookmaker=${BOOKMAKER_ID}`);
-  const parsed = (data.response ?? []).map(parseOdds).find(Boolean) ?? null;
+  const data = await apiGet<any>(`/odds?fixture=${fixtureId}&bookmaker=${bookmakerId}`);
+  const parsed = (data.response ?? []).map((item: any) => parseOdds(item, bookmakerId)).find(Boolean) ?? null;
 
-  // API-Football says pre-match odds update roughly every 3 hours.
+  // Pre-match odds are cached, but the bookmaker identity and handicap side are now verified.
   writeCache(cacheKey, parsed, 3 * 60 * 60 * 1000);
   return parsed;
 }
@@ -204,7 +254,7 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · Bet365 pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
