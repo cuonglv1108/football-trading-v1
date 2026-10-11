@@ -33,6 +33,8 @@ export interface TradingMatch {
   league: League;
   home: string;
   away: string;
+  homeLogo?: string | null;
+  awayLogo?: string | null;
   minute: number | null;
   status: 'PRE' | 'LIVE' | 'HT' | 'FT';
   kickoff?: string | null;
