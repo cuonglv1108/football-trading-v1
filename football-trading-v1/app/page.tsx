@@ -368,7 +368,7 @@ export default function Home() {
         }
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
-        setNotice(status === 'OPENAI_API_KEY_MISSING'
+        setNotice(status === 'API_FOOTBALL_KEY_MISSING'
           ? 'API-Football is not configured yet. Add the provider key before refreshing fixtures.'
           : status === 'DAILY_BUDGET_REACHED'
             ? 'Daily scan budget reached. No paid scan was started.'
@@ -397,7 +397,7 @@ export default function Home() {
       });
       const data = await res.json();
 
-      if (data.providerStatus === 'OPENAI_API_KEY_MISSING') {
+      if (data.providerStatus === 'API_FOOTBALL_KEY_MISSING') {
         setNotice('HT Check is ready, but OPENAI_API_KEY is not connected yet.');
         return;
       }
