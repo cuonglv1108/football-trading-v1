@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getApiFootballMatches } from '../../../lib/apiFootball';
+import { getApiFootballScan } from '../../../lib/apiFootball';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-v6.json';
+const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-v7.json';
 const CACHE_MS = Number(process.env.V1_PROVIDER_SCAN_CACHE_MS || 2 * 60 * 60 * 1000);
 
 type Payload = {
@@ -18,6 +18,8 @@ type Payload = {
   fixturesFound: number;
   fixturesVerified: number;
   qualifiedMatches?: number;
+  missingMarketCount?: number;
+  marketCoverage?: string;
   webCallsThisScan: number;
   estimatedCostUsd: number;
   updatedAt: string;
@@ -94,7 +96,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const all = await getApiFootballMatches();
+    const scanResult = await getApiFootballScan();
+    const all = scanResult.matches;
     const qualified = all.filter(m => m.state === 'QUALIFIED');
     const expiresAt = Date.now() + CACHE_MS;
 
@@ -103,15 +106,19 @@ export async function GET(request: Request) {
       dataSource: 'API-Football',
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
-      scanStatus: 'COMPLETE',
-      fixturesFound: all.length,
-      fixturesVerified: all.length,
+      scanStatus: scanResult.missingMarketCount > 0 ? 'PARTIAL' : 'COMPLETE',
+      fixturesFound: scanResult.fixturesFound,
+      fixturesVerified: scanResult.fixturesWithCompleteMarkets,
       qualifiedMatches: qualified.length,
+      missingMarketCount: scanResult.missingMarketCount,
+      marketCoverage: `${scanResult.fixturesWithCompleteMarkets}/${scanResult.fixturesFound} fixtures have complete goal+corner markets`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: 'Structured fixture/odds scan completed with no GPT web search.',
+      message: scanResult.missingMarketCount > 0
+        ? `Structured scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete goal+corner market in API-Football.`
+        : 'Structured fixture/odds scan completed with no GPT web search.',
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };
