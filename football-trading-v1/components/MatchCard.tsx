@@ -11,10 +11,11 @@ type Props = {
   onCheckpoint?: (match: TradingMatch) => void;
   onHtCheck?: (match: TradingMatch) => void;
   htLoading?: boolean;
+  htCheckReady?: boolean;
   compact?: boolean;
 };
 
-export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, compact = false }: Props) {
+export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, htCheckReady = false, compact = false }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
   const probability = match.winProbability ?? 0;
   const [expanded, setExpanded] = useState(false);
@@ -95,12 +96,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       )}
 
-      <div className="marketStrip">
-        <span><small>C</small><b>{match.prematchCornerLine}</b></span>
-        <span><small>G</small><b>{match.prematchGoalLine}</b></span>
-        <span><small>AH</small><b>{handicapText}</b></span>
-      </div>
-
       {match.watchStatus === 'EXPIRED_UNVERIFIED' && (
         <div className="htAdvice">
           <b>ARCHIVED · FT NOT VERIFIED</b>
@@ -132,15 +127,41 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         </div>
       )}
 
+      {onHtCheck && match.status !== 'FT' && (
+        <div className="cardQuickActions">
+          <button
+            className={`htQuickBtn ${htCheckReady ? 'ready' : ''}`}
+            onClick={() => onHtCheck(match)}
+            disabled={
+              htLoading ||
+              (!htCheckReady && !(match.htVerified === true && (match.liveGoalLine == null || match.liveCornerLine == null))) ||
+              (match.htVerified === true && match.liveGoalLine != null && match.liveCornerLine != null)
+            }
+          >
+            {htLoading
+              ? 'CHECKING HT + H2…'
+              : match.htVerified === true && match.liveGoalLine != null && match.liveCornerLine != null
+                ? 'HT + H2 VERIFIED ✓'
+                : match.htVerified === true
+                  ? 'REFRESH H2 LINES'
+                  : htCheckReady
+                    ? 'HT CHECK · GET H2 LINES'
+                    : 'HT CHECK · AT HALFTIME'}
+          </button>
+        </div>
+      )}
+
       <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
-        {expanded ? 'Hide' : compact ? 'Analysis & result' : 'Details'}
+        {expanded ? 'Hide analysis' : compact ? 'View analysis & result' : 'View details'}
       </button>
 
       {expanded && (
         <>
           <div className="metrics">
-            <div><span>Current corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
-            <div><span>V1 state</span><b>{match.state ?? 'WATCHING'}</b></div>
+            <div><span>Corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
+            <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
+            <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
+            <div><span>FT handicap</span><b>{handicapText}</b></div>
           </div>
 
           {match.sourceSummary && (
@@ -247,12 +268,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                 <a key={`ft-${url}-${i}`} href={url} target="_blank" rel="noreferrer">FT source {i + 1}</a>
               ))}
             </div>
-          )}
-
-          {onHtCheck && match.status !== 'FT' && (
-            <button className="htCheckBtn" onClick={() => onHtCheck(match)} disabled={htLoading}>
-              {htLoading ? 'Verifying HT…' : 'Verify HT'}
-            </button>
           )}
 
           {onCheckpoint && match.status !== 'FT' && (
