@@ -388,9 +388,11 @@ export default function Home() {
         } else if (data.cacheStatus === 'HIT') {
           setNotice(`Shared result · ${incoming.length} qualified V1 matches · cached · no new provider refresh`);
         } else {
-          const coverage = data.fixturesFound != null
-            ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
-            : '';
+          const coverage = data.marketCoverage
+            ? ` · ${data.marketCoverage}`
+            : data.fixturesFound != null
+              ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} complete markets`
+              : '';
           const partial = data.scanStatus === 'PARTIAL' ? ' · PARTIAL' : ' · COMPLETE';
           setNotice(`New provider scan${partial}${coverage} · ${incoming.length} qualified`);
         }
@@ -403,7 +405,7 @@ export default function Home() {
             : status === 'ERROR'
               ? `Scan stopped safely · ${data.providerError ?? 'scanner error'} · saved watchlist/history kept`
               : data.scanStatus === 'PARTIAL'
-                ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures verified · no qualifying match verified yet.`
+                ? `PARTIAL scan · ${data.fixturesVerified ?? 0}/${data.fixturesFound ?? 0} fixtures have complete goal+corner markets · ${data.missingMarketCount ?? 0} missing market coverage.`
                 : 'Scan complete · no verified V1 matches found.');
       }
     } catch {
