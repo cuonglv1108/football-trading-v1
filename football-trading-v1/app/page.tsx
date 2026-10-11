@@ -13,6 +13,29 @@ type View = 'SCANNER' | 'STARRED' | 'HISTORY';
 const STAR_KEY = 'football-trading-v1-starred';
 const HISTORY_KEY = 'football-trading-v1-history';
 
+function localDayKey(value: string | number | Date) {
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dayRail(now: number) {
+  const base = new Date(now);
+  base.setHours(12, 0, 0, 0);
+  return Array.from({ length: 4 }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    return {
+      key: localDayKey(d),
+      dow: i === 0 ? 'TODAY' : d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase(),
+      date: d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }).toUpperCase(),
+    };
+  });
+}
+
 function isTrustedLegacyFt(row: TradingMatch) {
   if (row.status !== 'FT' && row.researchPhase !== 'FT') return true;
   if (row.ftVerified === true) return true;
@@ -73,6 +96,7 @@ export default function Home() {
   const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
   const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
   const [clock, setClock] = useState(() => Date.now());
+  const [selectedDay, setSelectedDay] = useState('ALL');
 
   useEffect(() => {
     const savedWatchlist = readSaved(STAR_KEY).filter(m => m.status !== 'FT');
@@ -227,7 +251,7 @@ export default function Home() {
 
   async function loadCachedScan() {
     try {
-      const res = await fetch('/api/gpt-scan', { cache: 'no-store' });
+      const res = await fetch('/api/scan', { cache: 'no-store' });
       const data = await res.json();
       const incoming = (data.matches ?? []) as TradingMatch[];
 
@@ -293,7 +317,7 @@ export default function Home() {
       let data: any;
 
       try {
-        const res = await fetch('/api/gpt-scan?scan=1', { cache: 'no-store' });
+        const res = await fetch('/api/scan?refresh=1', { cache: 'no-store' });
         const text = await res.text();
         data = JSON.parse(text);
       } catch {
@@ -301,7 +325,7 @@ export default function Home() {
         // finished the paid scan. Recover from the shared persistent cache first,
         // so retrying never starts a second paid scan.
         await new Promise(resolve => setTimeout(resolve, 1200));
-        const recovery = await fetch('/api/gpt-scan', { cache: 'no-store' });
+        const recovery = await fetch('/api/scan', { cache: 'no-store' });
         const recoveryText = await recovery.text();
         data = JSON.parse(recoveryText);
       }
@@ -334,18 +358,18 @@ export default function Home() {
         if (data.providerStatus === 'DAILY_BUDGET_REACHED') {
           setNotice(`Daily budget reached · showing saved result · ${incoming.length} V1 matches`);
         } else if (data.cacheStatus === 'HIT') {
-          setNotice(`Shared result · ${incoming.length} qualified V1 matches · no new GPT cost`);
+          setNotice(`Shared result · ${incoming.length} qualified V1 matches · cached · no new provider refresh`);
         } else {
           const coverage = data.fixturesFound != null
             ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} fixtures verified`
             : '';
           const partial = data.scanStatus === 'PARTIAL' ? ' · PARTIAL' : ' · COMPLETE';
-          setNotice(`New GPT scan${partial}${coverage} · ${incoming.length} qualified`);
+          setNotice(`New provider scan${partial}${coverage} · ${incoming.length} qualified`);
         }
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
         setNotice(status === 'OPENAI_API_KEY_MISSING'
-          ? 'GPT scanner is ready, but OPENAI_API_KEY is not connected yet.'
+          ? 'API-Football is not configured yet. Add the provider key before refreshing fixtures.'
           : status === 'DAILY_BUDGET_REACHED'
             ? 'Daily scan budget reached. No paid scan was started.'
             : status === 'ERROR'
@@ -573,10 +597,15 @@ export default function Home() {
   }
 
   const source = view === 'STARRED' ? starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock)) : view === 'HISTORY' ? history : matches.filter(m => !isWatchExpired(m, clock));
-  const filtered = useMemo(
-    () => league === 'ALL' ? source : source.filter(m => m.league === league),
-    [source, league]
-  );
+  const filtered = useMemo(() => {
+    let rows = league === 'ALL' ? source : source.filter(m => m.league === league);
+    if (view !== 'HISTORY' && selectedDay !== 'ALL') {
+      rows = rows.filter(m => m.kickoff && localDayKey(m.kickoff) === selectedDay);
+    }
+    return rows;
+  }, [source, league, view, selectedDay]);
+
+  const dates = useMemo(() => dayRail(clock), [clock]);
 
   const dueCount = starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock) && /DUE|checkpoint|result/i.test(nextCheckpoint(m))).length;
   const triggerCount = starred.filter(m => m.state === 'TRIGGER').length;
@@ -584,21 +613,24 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <header>
-        <div>
-          <p className="eyebrow">FOOTBALL TRADING</p>
-          <h1>V1 Auto Scanner</h1>
+      <header className="appHeader">
+        <div className="brandBlock">
+          <div className="brandMark">V1</div>
+          <div>
+            <p className="eyebrow">FOOTBALL TRADING</p>
+            <h1>Match Center</h1>
+          </div>
         </div>
         <div className="headerActions">
-          <button className="notify" onClick={enableNotifications}>Alerts</button>
-          <button className="notify" onClick={() => runLiveBatch('HT')} disabled={batchLoading !== null}>
-            {batchLoading === 'HT' ? 'HT Batch…' : 'HT Batch'}
+          <button className="iconAction" onClick={enableNotifications} aria-label="Alerts">🔔</button>
+          <button className="quickAction" onClick={() => runLiveBatch('HT')} disabled={batchLoading !== null}>
+            {batchLoading === 'HT' ? 'HT…' : 'HT'}
           </button>
-          <button className="notify" onClick={() => runLiveBatch('FT')} disabled={batchLoading !== null}>
-            {batchLoading === 'FT' ? 'FT Batch…' : 'FT Batch'}
+          <button className="quickAction" onClick={() => runLiveBatch('FT')} disabled={batchLoading !== null}>
+            {batchLoading === 'FT' ? 'FT…' : 'FT'}
           </button>
-          <button className="addBtn" onClick={scanUpcoming} disabled={loading}>
-            {loading ? 'Scanning…' : 'Scan 72h'}
+          <button className="refreshAction" onClick={scanUpcoming} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh 72h'}
           </button>
         </div>
       </header>
@@ -606,16 +638,29 @@ export default function Home() {
       {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
 
       <section className="summary">
-        <div><span>V1 matches</span><strong>{qualifiedCount}</strong></div>
-        <div><span>★ Saved</span><strong>{starred.length}</strong></div>
-        <div><span>Checks due</span><strong>{dueCount}</strong></div>
+        <div><span>Qualified</span><strong>{qualifiedCount}</strong></div>
+        <div><span>Saved</span><strong>{starred.length}</strong></div>
+        <div><span>Due now</span><strong>{dueCount}</strong></div>
       </section>
 
       <nav className="mainTabs">
-        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ Watchlist</button>
-        <button className={view === 'SCANNER' ? 'active' : ''} onClick={() => setView('SCANNER')}>Next 72h</button>
+        <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ My Matches</button>
+        <button className={view === 'SCANNER' ? 'active' : ''} onClick={() => setView('SCANNER')}>Discover</button>
         <button className={view === 'HISTORY' ? 'active' : ''} onClick={() => setView('HISTORY')}>History</button>
       </nav>
+
+      {view !== 'HISTORY' && (
+        <nav className="dateRail">
+          <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
+            <strong>ALL</strong><span>72H</span>
+          </button>
+          {dates.map(item => (
+            <button key={item.key} className={selectedDay === item.key ? 'active' : ''} onClick={() => setSelectedDay(item.key)}>
+              <strong>{item.dow}</strong><span>{item.date}</span>
+            </button>
+          ))}
+        </nav>
+      )}
 
       <nav className="leagueTabs">
         {leagues.map(item => (
@@ -685,10 +730,10 @@ export default function Home() {
             </strong>
             <span>
               {view === 'STARRED'
-                ? 'Qualified matches from the next 72 hours will be added automatically.'
+                ? 'Qualified V1 fixtures you save will stay here until FT.'
                 : view === 'HISTORY'
                   ? 'Checkpoint snapshots will appear here.'
-                  : 'The scanner only shows verified upcoming fixtures with usable pre-match lines.'}
+                  : 'Refresh 72h to load structured fixtures and verified pre-match markets.'}
             </span>
           </div>
         )}
@@ -733,8 +778,8 @@ export default function Home() {
       )}
 
       <footer>
-        <span>Pre-match auto scan · live checks on demand</span>
-        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for scan'}</span>
+        <span>Structured football feed · V1 rules local</span>
+        <span>{updatedAt ? `Last scan ${new Date(updatedAt).toLocaleTimeString()}` : 'Waiting for provider refresh'}</span>
         {nextRefreshAt && <span>{`Free refresh after ${new Date(nextRefreshAt).toLocaleTimeString()}`}</span>}
         {scanStatus && <span>{`Scan ${scanStatus}${scanCoverage ? ` · ${scanCoverage}` : ''}`}</span>}
         {budgetStatus && <span>{budgetStatus}</span>}
