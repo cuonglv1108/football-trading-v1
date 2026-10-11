@@ -100,6 +100,8 @@ function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: s
 
 function moneylineFavourite(bets: any[]): 'HOME' | 'AWAY' | null {
   for (const bet of bets) {
+    const name = String(bet?.name ?? '').trim();
+    if (!/^(match winner|fulltime result|1x2)$/i.test(name)) continue;
     const values = Array.isArray(bet?.values) ? bet.values : [];
     const home = values.find((v: any) => /^home$/i.test(String(v?.value ?? '').trim()));
     const away = values.find((v: any) => /^away$/i.test(String(v?.value ?? '').trim()));
@@ -296,7 +298,7 @@ function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnTyp
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · AHv3 verified · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.handicapVerified ? 'AHv3 verified' : 'AHv3 unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
