@@ -52,16 +52,16 @@ function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
     typeof row.sourceSummary === 'string' &&
     row.sourceSummary.startsWith('API-Football ·');
 
-  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('MARKETv5 verified');
+  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('SAFEv6 verified');
   if (!providerRecord || hasSafeAsianParser) return row;
 
-  // Any provider market snapshot produced before MARKETv5 is not used for HT decisions.
+  // Any provider handicap snapshot produced before SAFEv6 is not used for HT decisions.
   return {
     ...row,
     handicapVerified: false,
     favouriteCoveringHandicap: false,
     favouriteLosing: false,
-    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — MARKETv5 rescan required`,
+    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — SAFEv6 rescan required`,
   };
 }
 
