@@ -639,3 +639,122 @@ footer {
   .teamScore { font-size:17px; }
   .compactKickoff { margin-left:64px; }
 }
+
+
+/* hierarchy polish */
+.statusStrip {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  overflow-x:auto;
+  padding:2px 0 10px;
+  scrollbar-width:none;
+}
+.statusStrip::-webkit-scrollbar { display:none; }
+.statusStrip > span {
+  flex:0 0 auto;
+  min-height:30px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 10px;
+  border:1px solid #22262a;
+  background:#0e1012;
+  color:#89919b;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:750;
+}
+.statusStrip b { color:#f4f5f6; font-size:11px; }
+.statusStrip .dueHot {
+  color:#ff8a49;
+  border-color:rgba(255,104,29,.28);
+  background:rgba(255,104,29,.07);
+}
+.statusStrip .providerPill {
+  margin-left:auto;
+  color:#66d994;
+  border-color:rgba(54,212,122,.18);
+  background:rgba(54,212,122,.055);
+}
+
+.dateRail .liveDay strong { color:#ff7a31; }
+.dateRail .liveDay.active strong { color:#0a0b0c; }
+
+.feedHeader {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  margin:4px 4px 9px;
+}
+.feedHeader > div {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.feedHeader span {
+  color:#818995;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.13em;
+}
+.feedHeader strong {
+  font-size:17px;
+  letter-spacing:-.025em;
+}
+.feedHeader small {
+  color:#69717a;
+  font-size:9px;
+}
+
+.marketStrip {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:10px 0 0 64px;
+}
+.marketStrip > span {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:5px 7px;
+  border-radius:8px;
+  background:#0d0f11;
+  border:1px solid rgba(255,255,255,.055);
+}
+.marketStrip small {
+  color:#707984;
+  font-size:8px;
+  font-weight:900;
+}
+.marketStrip b {
+  min-width:0;
+  max-width:128px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#cbd0d6;
+  font-size:9px;
+  font-weight:800;
+}
+.detailsBtn {
+  width:auto;
+  min-width:74px;
+  margin:9px 0 0 64px;
+  padding:6px 10px;
+  border-radius:9px;
+  font-size:9px;
+  color:#7e8791;
+}
+
+@media (max-width:560px) {
+  .statusStrip { padding-bottom:8px; }
+  .statusStrip > span { min-height:27px; padding:0 8px; font-size:9px; }
+  .statusStrip .providerPill { margin-left:0; }
+  .marketStrip { margin-left:64px; gap:4px; }
+  .marketStrip > span { padding:4px 6px; }
+  .marketStrip b { max-width:92px; font-size:8px; }
+  .detailsBtn { margin-left:64px; }
+}
