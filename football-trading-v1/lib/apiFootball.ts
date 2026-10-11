@@ -199,10 +199,11 @@ function parseOdds(item: any, bookmakerId: number) {
 
   const marketFavourite = moneylineFavourite(bets);
   const handicap = parseHandicap(handicapBet?.values, marketFavourite);
+  const favourite: 'HOME' | 'AWAY' = handicap?.favourite ?? 'HOME';
   return {
     goalLine,
     cornerLine,
-    favourite: handicap?.favourite ?? ('HOME' as const),
+    favourite,
     handicap: handicap?.handicap ?? 0,
     handicapVerified: Boolean(handicap),
     bookmakerId,
