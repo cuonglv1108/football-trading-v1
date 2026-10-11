@@ -48,19 +48,20 @@ function isTrustedLegacyFt(row: TradingMatch) {
 }
 
 function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
-  const oldHardcodedBookmakerRecord =
+  const providerRecord =
     typeof row.sourceSummary === 'string' &&
-    row.sourceSummary.includes('API-Football · Bet365 pre-match lines · fixture') &&
-    !row.sourceSummary.includes('Bet365 #');
+    row.sourceSummary.startsWith('API-Football ·');
 
-  if (!oldHardcodedBookmakerRecord) return row;
+  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('AHv3 verified');
+  if (!providerRecord || hasSafeAsianParser) return row;
 
+  // Any provider handicap produced before AHv3 is unsafe for HT decisions.
   return {
     ...row,
     handicapVerified: false,
     favouriteCoveringHandicap: false,
     favouriteLosing: false,
-    sourceSummary: `${row.sourceSummary} · LEGACY HANDICAP INVALIDATED — rescan required`,
+    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — AHv3 rescan required`,
   };
 }
 
