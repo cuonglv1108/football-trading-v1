@@ -334,7 +334,11 @@ async function fetchLiveFixtures() {
   return fixtures;
 }
 
-function fixtureToBase(league: League, fixture: any, odds: NonNullable<ReturnType<typeof parseOdds>>): TradingMatch {
+function fixtureToBase(
+  league: League,
+  fixture: any,
+  odds: NonNullable<ReturnType<typeof parseBookmakerOdds>> & { sourceTier?: 'BET365' | 'FALLBACK' }
+): TradingMatch {
   const corners = cornerCount(fixture.statistics);
   const status = statusOf(fixture.fixture?.status?.short ?? 'NS');
   const scoreHome = Number(fixture.goals?.home ?? 0);
