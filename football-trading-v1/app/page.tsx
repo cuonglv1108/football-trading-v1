@@ -47,10 +47,29 @@ function isTrustedLegacyFt(row: TradingMatch) {
   return !(sh === 0 && sa === 0 && ch === 0 && ca === 0);
 }
 
+function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
+  const oldHardcodedBookmakerRecord =
+    typeof row.sourceSummary === 'string' &&
+    row.sourceSummary.includes('API-Football · Bet365 pre-match lines · fixture') &&
+    !row.sourceSummary.includes('Bet365 #');
+
+  if (!oldHardcodedBookmakerRecord) return row;
+
+  return {
+    ...row,
+    handicapVerified: false,
+    favouriteCoveringHandicap: false,
+    favouriteLosing: false,
+    sourceSummary: `${row.sourceSummary} · LEGACY HANDICAP INVALIDATED — rescan required`,
+  };
+}
+
 function readSaved(key: string): TradingMatch[] {
   try {
     const rows = JSON.parse(localStorage.getItem(key) || '[]') as TradingMatch[];
-    return Array.isArray(rows) ? rows.filter(isTrustedLegacyFt) : [];
+    return Array.isArray(rows)
+      ? rows.filter(isTrustedLegacyFt).map(sanitizeLegacyProviderMatch)
+      : [];
   } catch {
     return [];
   }
