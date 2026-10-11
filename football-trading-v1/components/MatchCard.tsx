@@ -35,13 +35,46 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
     ? 'Previous GPT-search HT corners and H2 lines were not verified against a fixture/statistics provider. This signal is disabled.'
     : manualHt ? 'User-entered figures, not independently verified. Check halftime corners and H2 odds with the sportsbook.'
     : (execution?.detail ?? match.h2ExecutionDetail);
+  const kickoffDate = match.kickoff ? new Date(match.kickoff) : null;
+  const kickoffTime = kickoffDate && Number.isFinite(kickoffDate.getTime())
+    ? kickoffDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : 'TBD';
+  const statusLabel = match.watchStatus === 'EXPIRED_UNVERIFIED'
+    ? 'ARCH'
+    : match.status === 'PRE'
+      ? kickoffTime
+      : match.status === 'LIVE'
+        ? `${match.minute ?? ''}'`
+        : match.status;
+  const showScore = match.status !== 'PRE' && !unverifiedHt;
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
-      <div className="cardTop">
-        <span className="league">{match.league}</span>
-        <div className="cardActions">
-          {match.notable && <span className="notableBadge">★ V1 PICK</span>}
+      <div className="matchAccent" />
+      <div className="matchCompactRow">
+        <div className="matchTimeBlock">
+          <strong>{statusLabel}</strong>
+          <span>{match.league}</span>
+        </div>
+
+        <div className="clubPair">
+          <div className="clubLine">
+            <span className="teamBadge">
+              {match.homeLogo ? <img src={match.homeLogo} alt="" /> : <b>{match.home.slice(0, 2).toUpperCase()}</b>}
+            </span>
+            <strong>{match.home}</strong>
+            <b className="teamScore">{showScore ? match.scoreHome : ''}</b>
+          </div>
+          <div className="clubLine">
+            <span className="teamBadge">
+              {match.awayLogo ? <img src={match.awayLogo} alt="" /> : <b>{match.away.slice(0, 2).toUpperCase()}</b>}
+            </span>
+            <strong>{match.away}</strong>
+            <b className="teamScore">{showScore ? match.scoreAway : ''}</b>
+          </div>
+        </div>
+
+        <div className="matchSideActions">
           {onToggleStar && (
             <button
               className={`starBtn ${starred ? 'active' : ''}`}
@@ -51,20 +84,14 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
               ★
             </button>
           )}
-          <span className="status">{match.watchStatus === 'EXPIRED_UNVERIFIED' ? 'ARCHIVED' : match.status === 'LIVE' ? `${match.minute}'` : match.status}</span>
+          {match.notable && <span className="v1Dot">V1</span>}
         </div>
       </div>
 
-      <div className="teams">
-        <strong>{match.home}</strong>
-        <span>{unverifiedHt ? '— - —' : `${match.scoreHome} - ${match.scoreAway}`}</span>
-        <strong>{match.away}</strong>
-      </div>
-
       {match.kickoff && (
-        <div className="kickoff">
-          {new Date(match.kickoff).toLocaleString()}
-          {match.checkedAt ? ` · checked ${new Date(match.checkedAt).toLocaleTimeString()}` : ''}
+        <div className="kickoff compactKickoff">
+          {kickoffDate?.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+          {match.checkedAt ? ` · checked ${new Date(match.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
         </div>
       )}
 
