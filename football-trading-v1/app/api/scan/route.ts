@@ -6,7 +6,7 @@ import { getApiFootballMatches } from '../../../lib/apiFootball';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan.json';
+const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-v2.json';
 const CACHE_MS = Number(process.env.V1_PROVIDER_SCAN_CACHE_MS || 2 * 60 * 60 * 1000);
 
 type Payload = {
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       estimatedCostUsd: 0,
       updatedAt: '',
       cacheStatus: 'HIT',
-      message: 'No provider scan cached yet. Tap Refresh 72h when you want new data.',
+      message: 'No provider scan cached yet. Tap Scan 72h when you want new data.',
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 
