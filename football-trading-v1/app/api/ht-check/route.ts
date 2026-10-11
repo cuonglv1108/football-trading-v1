@@ -52,20 +52,26 @@ export async function POST(req: NextRequest) {
 
     const execution = deriveH2Execution({
       htAction: action,
-      liveGoalLine: null,
-      liveCornerLine: null,
+      liveGoalLine: snap.liveGoalLine,
+      liveCornerLine: snap.liveCornerLine,
     });
 
     return NextResponse.json({
       providerStatus: 'CONNECTED', ...snap,
       action, evaluationType,
-      confidence: 'MEDIUM', reason, dataNote: reason,
+      confidence: 'HIGH', reason, dataNote: reason,
       h2GoalsAssessment: action === 'H2_GOALS_AND_CORNERS' ? 'V1_SUPPORTED' : 'V1_NOT_SUPPORTED',
       h2CornersAssessment: action === 'H2_GOALS_AND_CORNERS' || action === 'H2_CORNERS'
         ? 'V1_SUPPORTED' : 'V1_NOT_SUPPORTED',
       favouriteCoveringHandicap, favouriteLosing, ftGoalOverClear,
-      missingInputs: action === 'NO_ENTRY' ? [] : action === 'H2_GOALS_AND_CORNERS'
-        ? ['Exact H2 goal line', 'Exact H2 corner line'] : ['Exact H2 corner line'],
+      missingInputs: action === 'NO_ENTRY'
+        ? []
+        : action === 'H2_GOALS_AND_CORNERS'
+          ? [
+              ...(snap.liveGoalLine == null ? ['Exact H2 goal line'] : []),
+              ...(snap.liveCornerLine == null ? ['Exact H2 corner line'] : []),
+            ]
+          : (snap.liveCornerLine == null ? ['Exact H2 corner line'] : []),
       h2ExecutionAction: execution.action,
       h2ExecutionText: execution.text,
       h2ExecutionDetail: execution.detail,
