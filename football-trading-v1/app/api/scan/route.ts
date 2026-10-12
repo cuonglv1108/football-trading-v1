@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getApiFootballScan } from '../../../lib/apiFootball';
+import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-v7.json';
+const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-5d-v1.json';
 const CACHE_MS = Number(process.env.V1_PROVIDER_SCAN_CACHE_MS || 2 * 60 * 60 * 1000);
 
 type Payload = {
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({
       providerStatus: 'CACHE_EMPTY',
-      dataSource: 'API-Football',
+      dataSource: '5DollarFootballAPI',
       mode: 'STRUCTURED_PROVIDER',
       matches: [],
       scanStatus: 'EMPTY',
@@ -76,10 +76,10 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
 
-  if (!process.env.API_FOOTBALL_KEY) {
+  if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY) {
     return NextResponse.json({
       ...(cached?.payload ?? {
-        dataSource: 'API-Football',
+        dataSource: '5DollarFootballAPI',
         mode: 'STRUCTURED_PROVIDER',
         matches: [],
         fixturesFound: 0,
@@ -88,22 +88,22 @@ export async function GET(request: Request) {
         estimatedCostUsd: 0,
         updatedAt: new Date().toISOString(),
       }),
-      providerStatus: 'API_FOOTBALL_KEY_MISSING',
+      providerStatus: 'FIVE_DOLLAR_KEY_MISSING',
       scanStatus: 'BLOCKED',
       cacheStatus: cached ? 'STALE' : 'HIT',
-      message: 'API-Football key is not configured. No GPT fallback was started.',
+      message: '5DollarFootballAPI key is not configured. API-Football remains reserved for HT/FT verification.',
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 
   try {
-    const scanResult = await getApiFootballScan();
+    const scanResult = await getFiveDollarScan();
     const all = scanResult.matches;
     const qualified = all.filter(m => m.state === 'QUALIFIED');
     const expiresAt = Date.now() + CACHE_MS;
 
     const payload: Payload = {
       providerStatus: 'CONNECTED',
-      dataSource: 'API-Football',
+      dataSource: '5DollarFootballAPI',
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
       scanStatus: scanResult.missingMarketCount > 0 ? 'PARTIAL' : 'COMPLETE',
@@ -117,8 +117,8 @@ export async function GET(request: Request) {
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
       message: scanResult.missingMarketCount > 0
-        ? `Structured scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete goal+corner market in API-Football.`
-        : 'Structured fixture/odds scan completed with no GPT web search.',
+        ? `5Dollar scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete Bet365 goal+corner market.`
+        : '5Dollar Bet365 fixture/odds scan completed with no GPT web search.',
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };
@@ -128,7 +128,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ...(cached?.payload ?? {
-        dataSource: 'API-Football',
+        dataSource: '5DollarFootballAPI',
         mode: 'STRUCTURED_PROVIDER',
         matches: [],
         fixturesFound: 0,
@@ -140,7 +140,7 @@ export async function GET(request: Request) {
       providerStatus: 'ERROR',
       scanStatus: 'ERROR',
       cacheStatus: cached ? 'STALE' : 'HIT',
-      message: error instanceof Error ? error.message : 'API-Football scan failed',
+      message: error instanceof Error ? error.message : '5DollarFootballAPI scan failed',
     }, { status: 200, headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 }
