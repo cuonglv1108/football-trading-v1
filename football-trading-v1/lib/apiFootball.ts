@@ -188,7 +188,10 @@ function parseBookmakerOdds(bookmaker: any) {
   if (!bookmaker || !Array.isArray(bookmaker.bets)) return null;
 
   const bets = bookmaker.bets;
-  const goalsBet = bets.find((b: any) => /goals over\/under/i.test(b?.name ?? '') && !/half|home|away/i.test(b?.name ?? ''));
+  // V1 uses the Asian FT goal line (quarter lines such as 2.75 / 3.25), not
+  // the simple Goals Over/Under market that only exposes .5 lines.
+  const asianGoalBet = bets.find((b: any) => /^goal line$/i.test(String(b?.name ?? '').trim()));
+  const goalsBet = asianGoalBet ?? bets.find((b: any) => /goals over\/under/i.test(b?.name ?? '') && !/half|home|away/i.test(b?.name ?? ''));
   const cornersBet = bets.find((b: any) => /corner/i.test(b?.name ?? '') && /over|under|total/i.test(b?.name ?? '') && !/home|away|half|team/i.test(b?.name ?? ''));
   const handicapBet = bets.find((b: any) => /asian handicap/i.test(b?.name ?? '') && !/half/i.test(b?.name ?? ''));
 
@@ -208,7 +211,7 @@ function parseBookmakerOdds(bookmaker: any) {
     handicapVerified: Boolean(handicap),
     bookmakerId: Number(bookmaker.id),
     bookmakerName: String(bookmaker.name ?? 'Unknown bookmaker'),
-    oddsParserVersion: 'SAFEv7',
+    oddsParserVersion: 'SAFEv8',
   };
 }
 
@@ -251,7 +254,7 @@ async function resolveBet365BookmakerId() {
 
 async function fetchFixtureOdds(fixtureId: number) {
   const bookmakerId = await resolveBet365BookmakerId();
-  const cacheKey = `odds-v7-fixture-${fixtureId}`;
+  const cacheKey = `odds-v8-fixture-${fixtureId}`;
   const cached = readCache<any>(cacheKey);
   if (cached !== null) return cached;
 
@@ -370,7 +373,7 @@ function fixtureToBase(
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv7 AH verified' : 'SAFEv7 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv8 AH verified' : 'SAFEv8 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
