@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
+import { getApiFootballScan } from '../../../lib/apiFootball';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -96,14 +97,29 @@ export async function GET(request: Request) {
   }
 
   try {
-    const scanResult = await getFiveDollarScan();
+    let scanResult;
+    let dataSource = '5DollarFootballAPI · Bet365';
+    let providerNote = '';
+
+    try {
+      scanResult = await getFiveDollarScan();
+    } catch (fiveDollarError) {
+      if (!process.env.API_FOOTBALL_KEY) throw fiveDollarError;
+
+      scanResult = await getApiFootballScan();
+      dataSource = 'API-Football fallback';
+      providerNote = fiveDollarError instanceof Error
+        ? `5Dollar unavailable (${fiveDollarError.message}); using API-Football fallback.`
+        : '5Dollar unavailable; using API-Football fallback.';
+    }
+
     const all = scanResult.matches;
     const qualified = all.filter(m => m.state === 'QUALIFIED');
     const expiresAt = Date.now() + CACHE_MS;
 
     const payload: Payload = {
       providerStatus: 'CONNECTED',
-      dataSource: '5DollarFootballAPI',
+      dataSource,
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
       scanStatus: scanResult.missingMarketCount > 0 ? 'PARTIAL' : 'COMPLETE',
@@ -116,9 +132,11 @@ export async function GET(request: Request) {
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: scanResult.missingMarketCount > 0
-        ? `5Dollar scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete Bet365 goal+corner market.`
-        : '5Dollar Bet365 fixture/odds scan completed with no GPT web search.',
+      message: providerNote || (
+        scanResult.missingMarketCount > 0
+          ? `5Dollar scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete Bet365 goal+corner market.`
+          : '5Dollar Bet365 fixture/odds scan completed with no GPT web search.'
+      ),
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };
@@ -140,7 +158,7 @@ export async function GET(request: Request) {
       providerStatus: 'ERROR',
       scanStatus: 'ERROR',
       cacheStatus: cached ? 'STALE' : 'HIT',
-      message: error instanceof Error ? error.message : '5DollarFootballAPI scan failed',
+      message: error instanceof Error ? error.message : 'Pre-match provider scan failed',
     }, { status: 200, headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 }
