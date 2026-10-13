@@ -64,3 +64,12 @@ export async function deleteResearchMatch(matchId: string) {
   if (deleted > 0) await writeAll(next);
   return deleted;
 }
+
+
+export async function deleteResearchPhase(phase: 'HT' | 'FT') {
+  const rows = await readAll();
+  const next = rows.filter(row => (row.researchPhase ?? row.status) !== phase);
+  const deleted = rows.length - next.length;
+  if (deleted > 0) await writeAll(next);
+  return deleted;
+}
