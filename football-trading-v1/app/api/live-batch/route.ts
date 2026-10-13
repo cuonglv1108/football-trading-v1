@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TradingMatch } from '../../../lib/types';
 import { saveResearchBatch } from '../../../lib/researchStore';
-import { buildH2Predictions, gradeMatchPredictions } from '../../../lib/outcomes';
+import { buildH2Predictions, evaluateMethodOutcomes, gradeMatchPredictions } from '../../../lib/outcomes';
 import { deriveH2Execution } from '../../../lib/h2Execution';
 import { collectVerifiedFt } from '../../../lib/verifiedFt';
 import { fetchVerifiedHt } from '../../../lib/verifiedHt';
@@ -170,9 +170,13 @@ function ftEvaluate(match: TradingMatch, row: any): TradingMatch {
     ftSourceUrls: Array.isArray(row.sourceUrls) ? row.sourceUrls.filter((x: unknown) => typeof x === 'string') : [],
   };
 
-  return {
+  const graded = {
     ...base,
     h2Predictions: gradeMatchPredictions(base),
+  };
+  return {
+    ...graded,
+    methodOutcomes: evaluateMethodOutcomes(graded),
   };
 }
 
