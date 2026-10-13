@@ -13,9 +13,10 @@ type Props = {
   htLoading?: boolean;
   htCheckReady?: boolean;
   compact?: boolean;
+  onDeleteHistory?: (match: TradingMatch) => void;
 };
 
-export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, htCheckReady = false, compact = false }: Props) {
+export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, htCheckReady = false, compact = false, onDeleteHistory }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
   const [expanded, setExpanded] = useState(false);
   const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
@@ -80,9 +81,20 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
           <div className="matchSideActions"><span className="v1Dot">V1</span></div>
         </div>
 
-        <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
-          {expanded ? 'Hide details' : 'Details'}
-        </button>
+        <div className="historyCardActions">
+          <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
+            {expanded ? 'Hide details' : 'Details'}
+          </button>
+          {onDeleteHistory && (
+            <button
+              className="historyDeleteBtn"
+              onClick={() => onDeleteHistory(match)}
+              aria-label={`Delete ${match.home} vs ${match.away} from history`}
+            >
+              Delete
+            </button>
+          )}
+        </div>
 
         {expanded && (
           <div className="historyFinalDetails">
