@@ -204,6 +204,34 @@ export default function Home() {
     }
   }
 
+
+  async function deleteHistoryMatch(match: TradingMatch) {
+    const confirmed = window.confirm(`Delete ${match.home} vs ${match.away} from History and win-probability stats?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/research?id=${encodeURIComponent(match.id)}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.ok !== true) {
+        setNotice(data.error || 'Could not delete this history match.');
+        return;
+      }
+
+      setHistory(prev => {
+        const next = prev.filter(row => row.id !== match.id);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+      setNotice(`Deleted ${match.home} vs ${match.away} from History.`);
+      await loadSharedResearch();
+    } catch {
+      setNotice('Could not delete this history match.');
+    }
+  }
+
   function dueForPhase(match: TradingMatch, phase: 'HT' | 'FT') {
     if (!match.kickoff) return false;
     const elapsed = (Date.now() - new Date(match.kickoff).getTime()) / 60000;
@@ -765,6 +793,7 @@ export default function Home() {
               htLoading={htLoadingId === match.id}
               htCheckReady={view === 'STARRED' && dueForPhase(match, 'HT')}
               compact={view === 'HISTORY'}
+              onDeleteHistory={view === 'HISTORY' ? deleteHistoryMatch : undefined}
             />
           </div>
         )) : (
