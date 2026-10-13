@@ -1002,3 +1002,30 @@ footer {
   .winProbabilityMetrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .winProbabilityTop strong { font-size: 30px; }
 }
+
+
+/* per-match History deletion */
+.historyCardActions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 11px;
+}
+.historyCardActions .detailsBtn {
+  margin-top: 0;
+}
+.historyDeleteBtn {
+  min-height: 35px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,103,103,.24);
+  border-radius: 12px;
+  background: rgba(255,103,103,.07);
+  color: #ff7777;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.historyDeleteBtn:hover {
+  background: rgba(255,103,103,.12);
+}
