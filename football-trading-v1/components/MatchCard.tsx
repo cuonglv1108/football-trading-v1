@@ -215,6 +215,25 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
+          {!unverifiedHt && (match.methodOutcomes ?? []).length > 0 && (
+            <div className="htAdvice">
+              <div className="htAdviceTop">
+                <span>METHOD RESULT</span>
+                <b>{(match.methodOutcomes ?? []).some(o => o.status === 'SUCCESS') ? 'CHECKED' : 'PENDING / CHECKED'}</b>
+              </div>
+              {(match.methodOutcomes ?? []).map((o, i) => (
+                <div key={`method-${o.market}-${i}`} className="liveLines">
+                  <span>{o.market.replace(/_/g, ' ')}</span>
+                  <b>{o.status}</b>
+                  <small>
+                    H2 actual {o.actual ?? '—'} · pre-match FT line {o.benchmarkLine}
+                  </small>
+                  <small>{o.reason}</small>
+                </div>
+              ))}
+            </div>
+          )}
+
           {!unverifiedHt && (match.h2Predictions ?? []).length > 0 && (
             <div className="htAdvice">
               <div className="htAdviceTop">
