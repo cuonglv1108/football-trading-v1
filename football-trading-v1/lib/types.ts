@@ -1,6 +1,7 @@
 export type League = 'MLS' | 'Allsvenskan' | 'Liga MX' | 'Brazil Serie A';
 export type MatchState = 'QUALIFIED' | 'WATCHING' | 'TRIGGER' | 'CANCELLED';
 export type OutcomeGrade = 'PENDING' | 'FULL_WIN' | 'HALF_WIN' | 'PUSH' | 'HALF_LOSS' | 'FULL_LOSS' | 'UNRESOLVED';
+export type MethodOutcomeStatus = 'PENDING' | 'SUCCESS' | 'FAIL' | 'UNRESOLVED';
 export type H2ExecutionAction = 'PLAY_GOALS_AND_CORNERS' | 'PLAY_GOALS' | 'PLAY_CORNERS' | 'VERIFY_GOAL_LINE' | 'VERIFY_CORNER_LINE' | 'VERIFY_GOAL_AND_CORNER_LINES' | 'NO_ENTRY' | 'WAIT_HT_DATA';
 
 export interface H2Prediction {
@@ -12,6 +13,35 @@ export interface H2Prediction {
   note: string;
   grade?: OutcomeGrade;
   actual?: number | null;
+}
+
+export interface MethodOutcome {
+  market: 'H2_GOALS' | 'H2_CORNERS';
+  setupKey: string;
+  benchmarkLine: number;
+  actual: number | null;
+  status: MethodOutcomeStatus;
+  reason: string;
+}
+
+export interface MethodStats {
+  key: string;
+  market: 'H2_GOALS' | 'H2_CORNERS';
+  samples: number;
+  successes: number;
+  failures: number;
+  observedWinRate: number;
+  smoothedWinRate: number;
+  confidenceLabel: 'LOW_SAMPLE' | 'DEVELOPING' | 'ESTABLISHED';
+}
+
+export interface MethodOverallStats {
+  samples: number;
+  successes: number;
+  failures: number;
+  observedWinRate: number;
+  smoothedWinRate: number;
+  confidenceLabel: 'LOW_SAMPLE' | 'DEVELOPING' | 'ESTABLISHED';
 }
 
 export interface SetupStats {
@@ -96,4 +126,5 @@ export interface TradingMatch {
   researchPhase?: 'HT' | 'FT' | 'MANUAL';
   h2Predictions?: H2Prediction[];
   setupStats?: SetupStats[];
+  methodOutcomes?: MethodOutcome[];
 }
