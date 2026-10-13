@@ -42,7 +42,13 @@ export async function saveResearchBatch(snapshots: TradingMatch[]) {
   let rows = await readAll();
   for (const snapshot of snapshots) {
     const phase = snapshot.researchPhase ?? snapshot.status;
-    rows = rows.filter(row => !(row.id === snapshot.id && (row.researchPhase ?? row.status) === phase));
+    // Once FT is verified, the final snapshot already carries the HT trigger/lines.
+    // Replace the earlier HT row so History keeps one record per completed match.
+    if (phase === 'FT') {
+      rows = rows.filter(row => row.id !== snapshot.id);
+    } else {
+      rows = rows.filter(row => !(row.id === snapshot.id && (row.researchPhase ?? row.status) === phase));
+    }
     rows.unshift(snapshot);
   }
   rows = rows.slice(0, 1000);
