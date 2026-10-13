@@ -194,64 +194,98 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
   const verifiedFt = match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
 
-  const add = (
+  const commonState = (
     market: 'H2_GOALS' | 'H2_CORNERS',
-    supported: boolean,
     benchmarkLine: number,
-    actual: number | null | undefined
-  ) => {
-    if (!supported) return;
-    const setupKey = setupKeyForMarket(match, market);
-
+    actual: number | null,
+    setupKey: string
+  ): MethodOutcome | null => {
     if (!verifiedHt) {
-      out.push({
+      return {
         market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
-        reason: 'HT recommendation was not API-verified, so it is excluded from method win-rate statistics.',
-      });
-      return;
+        reason: 'HT not verified',
+      };
     }
-
     if (!verifiedFt) {
-      out.push({
-        market, setupKey, benchmarkLine, actual: actual ?? null, status: 'PENDING',
-        reason: 'Waiting for verified FT data.',
-      });
-      return;
+      return {
+        market, setupKey, benchmarkLine, actual, status: 'PENDING',
+        reason: 'Waiting FT',
+      };
     }
-
     if (actual == null || !Number.isFinite(actual)) {
-      out.push({
+      return {
         market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
-        reason: 'Verified FT exists, but H2 actual could not be reconstructed safely.',
-      });
-      return;
+        reason: 'Missing verified result',
+      };
     }
-
-    const success = actual > benchmarkLine;
-    out.push({
-      market,
-      setupKey,
-      benchmarkLine,
-      actual,
-      status: success ? 'SUCCESS' : 'FAIL',
-      reason: success
-        ? `H2 ${actual} > pre-match ${benchmarkLine}`
-        : `H2 ${actual} ≤ pre-match ${benchmarkLine}`,
-    });
+    return null;
   };
 
-  add(
-    'H2_GOALS',
-    match.h2GoalsAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_GOALS_AND_CORNERS',
-    match.prematchGoalLine,
-    match.h2ActualGoals
-  );
-  add(
-    'H2_CORNERS',
-    match.h2CornersAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_CORNERS' || match.htAction === 'H2_GOALS_AND_CORNERS',
-    match.prematchCornerLine,
-    match.h2ActualCorners
-  );
+  const goalsSupported =
+    match.h2GoalsAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_GOALS_AND_CORNERS';
+
+  if (goalsSupported) {
+    const market: 'H2_GOALS' = 'H2_GOALS';
+    const setupKey = setupKeyForMarket(match, market);
+    const benchmarkLine = match.prematchGoalLine;
+    const actual = match.h2ActualGoals ?? null;
+    const unresolved = commonState(market, benchmarkLine, actual, setupKey);
+    if (unresolved) {
+      out.push(unresolved);
+    } else {
+      const success = (actual as number) > benchmarkLine;
+      out.push({
+        market,
+        setupKey,
+        benchmarkLine,
+        actual,
+        status: success ? 'SUCCESS' : 'FAIL',
+        reason: success
+          ? `H2 goals ${actual} > pre-match ${benchmarkLine}`
+          : `H2 goals ${actual} ≤ pre-match ${benchmarkLine}`,
+      });
+    }
+  }
+
+  const cornersSupported =
+    match.h2CornersAssessment === 'V1_SUPPORTED' ||
+    match.htAction === 'H2_CORNERS' ||
+    match.htAction === 'H2_GOALS_AND_CORNERS';
+
+  if (cornersSupported) {
+    const market: 'H2_CORNERS' = 'H2_CORNERS';
+    const setupKey = setupKeyForMarket(match, market);
+    const benchmarkLine = match.prematchCornerLine;
+    const htCorners = match.htCornersHome != null && match.htCornersAway != null
+      ? match.htCornersHome + match.htCornersAway
+      : null;
+    const h2Corners = match.h2ActualCorners ?? null;
+    const finalCorners = htCorners != null && h2Corners != null
+      ? htCorners + h2Corners
+      : null;
+
+    const unresolved = commonState(market, benchmarkLine, finalCorners, setupKey);
+    if (unresolved) {
+      out.push(unresolved);
+    } else {
+      // V1 corner method success is based on the FINAL corner total:
+      // verified HT corners + H2 corners must finish at least 1.0 corner
+      // above the original pre-match FT corner line.
+      // Example: pre 10.5 -> FT 12 is success; FT 11 is not.
+      const margin = (finalCorners as number) - benchmarkLine;
+      const success = margin >= 1;
+      out.push({
+        market,
+        setupKey,
+        benchmarkLine,
+        actual: finalCorners,
+        status: success ? 'SUCCESS' : 'FAIL',
+        reason: success
+          ? `FT corners ${finalCorners} = HT ${htCorners} + H2 ${h2Corners}; +${margin} vs pre-match ${benchmarkLine}`
+          : `FT corners ${finalCorners} = HT ${htCorners} + H2 ${h2Corners}; +${margin} vs pre-match ${benchmarkLine}`,
+      });
+    }
+  }
 
   return out;
 }
@@ -273,7 +307,7 @@ export function computeMethodStats(rows: TradingMatch[]): MethodStats[] {
       row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
 
-    const outcomes = row.methodOutcomes?.length ? row.methodOutcomes : evaluateMethodOutcomes(row);
+    const outcomes = evaluateMethodOutcomes(row);
     for (const outcome of outcomes) {
       if (outcome.status !== 'SUCCESS' && outcome.status !== 'FAIL') continue;
       const id = `${outcome.market}|${outcome.setupKey}`;
@@ -308,7 +342,7 @@ export function computeMethodOverall(rows: TradingMatch[]): MethodOverallStats {
       row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
 
-    const outcomes = row.methodOutcomes?.length ? row.methodOutcomes : evaluateMethodOutcomes(row);
+    const outcomes = evaluateMethodOutcomes(row);
     for (const outcome of outcomes) {
       if (outcome.status === 'SUCCESS') successes += 1;
       else if (outcome.status === 'FAIL') failures += 1;
