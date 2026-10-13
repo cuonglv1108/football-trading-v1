@@ -45,6 +45,8 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         : match.status;
   const showScore = match.status !== 'PRE' && !unverifiedHt;
 
+  if (compact && match.researchPhase !== 'FT') return null;
+
   if (compact && match.researchPhase === 'FT') {
     const htCorners = match.htCornersHome != null && match.htCornersAway != null
       ? match.htCornersHome + match.htCornersAway
