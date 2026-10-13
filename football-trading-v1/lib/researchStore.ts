@@ -55,3 +55,12 @@ export async function saveResearchBatch(snapshots: TradingMatch[]) {
   await writeAll(rows);
   return snapshots;
 }
+
+
+export async function deleteResearchMatch(matchId: string) {
+  const rows = await readAll();
+  const next = rows.filter(row => String(row.id) !== String(matchId));
+  const deleted = rows.length - next.length;
+  if (deleted > 0) await writeAll(next);
+  return deleted;
+}
