@@ -229,8 +229,6 @@ export async function POST(req: NextRequest) {
             }));
           }
         }
-        const snapshots = results.filter(m => m.htVerified === true);
-        if (snapshots.length) await saveResearchBatch(snapshots);
         return NextResponse.json({
           providerStatus: 'CONNECTED', phase: 'HT', results,
           verifiedCount, pendingCount: results.length - verifiedCount,
