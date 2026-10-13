@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteResearchMatch, listResearch, saveResearch } from '../../../lib/researchStore';
+import { deleteResearchMatch, deleteResearchPhase, listResearch, saveResearch } from '../../../lib/researchStore';
 import { buildH2Predictions, computeMethodOverall, computeMethodStats, computeSetupStats, evaluateMethodOutcomes, gradeMatchPredictions } from '../../../lib/outcomes';
 import { TradingMatch } from '../../../lib/types';
 
@@ -138,7 +138,18 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const id = new URL(req.url).searchParams.get('id')?.trim();
+    const url = new URL(req.url);
+    const scope = url.searchParams.get('scope')?.trim().toLowerCase();
+
+    if (scope === 'ht') {
+      const deleted = await deleteResearchPhase('HT');
+      return NextResponse.json(
+        { ok: true, deleted, scope: 'HT' },
+        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
+    }
+
+    const id = url.searchParams.get('id')?.trim();
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Missing match id' }, { status: 400 });
     }
@@ -151,7 +162,7 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      error: error instanceof Error ? error.message : 'Could not delete history match',
+      error: error instanceof Error ? error.message : 'Could not delete history data',
     }, { status: 200 });
   }
 }
