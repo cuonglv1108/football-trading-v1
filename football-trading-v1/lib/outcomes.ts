@@ -235,8 +235,8 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
       actual,
       status: success ? 'SUCCESS' : 'FAIL',
       reason: success
-        ? `SUCCESS: actual H2 ${market === 'H2_CORNERS' ? 'corners' : 'goals'} ${actual} > pre-match FT line ${benchmarkLine}.`
-        : `FAIL: actual H2 ${market === 'H2_CORNERS' ? 'corners' : 'goals'} ${actual} did not exceed pre-match FT line ${benchmarkLine}.`,
+        ? `H2 ${actual} > pre-match ${benchmarkLine}`
+        : `H2 ${actual} ≤ pre-match ${benchmarkLine}`,
     });
   };
 
