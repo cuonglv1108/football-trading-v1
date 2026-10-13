@@ -113,7 +113,9 @@ export async function GET() {
     const ca = row.ftCornersAway ?? row.cornersAway;
     return !(sh === 0 && sa === 0 && ch === 0 && ca === 0);
   });
-  const rows = combineResearch(rawRows);
+  // History is a final-result view: keep HT snapshots internally only until FT arrives,
+  // but return one consolidated verified FT record per match.
+  const rows = combineResearch(rawRows).filter(row => row.researchPhase === 'FT' && row.ftVerified === true);
   const stats = computeSetupStats(rows);
   const methodStats = computeMethodStats(rows);
   const methodOverall = computeMethodOverall(rows);
