@@ -712,69 +712,37 @@ export default function Home() {
       {view === 'HISTORY' && (
         <>
           {methodOverall && methodOverall.samples > 0 && (
-            <section className="historyStats">
-              <div className="historyBar">
-                <span>V1 method success = actual H2 result exceeds the matching pre-match FT line. Only API-verified HT + FT records count.</span>
-              </div>
-              <div className="matchList">
-                <div className="card compact">
-                  <div className="cardTop">
-                    <span className="league">METHOD WIN RATE</span>
-                    <span className="status">{methodOverall.confidenceLabel.replace(/_/g, ' ')}</span>
-                  </div>
-                  <strong>{methodOverall.smoothedWinRate}% estimated · {methodOverall.observedWinRate}% observed</strong>
-                  <div className="metrics">
-                    <div><span>Samples</span><b>{methodOverall.samples}</b></div>
-                    <div><span>Success</span><b>{methodOverall.successes}</b></div>
-                    <div><span>Fail</span><b>{methodOverall.failures}</b></div>
-                  </div>
-                  <small>Estimated rate uses a neutral 50% prior so tiny samples do not look artificially certain.</small>
+            <section className="winProbabilityBox">
+              <div className="winProbabilityTop">
+                <div>
+                  <span>WIN PROBABILITY</span>
+                  <strong>{methodOverall.smoothedWinRate}%</strong>
                 </div>
-                {methodStats.map(stat => (
-                  <div className="card compact" key={`method-${stat.market}-${stat.key}`}>
-                    <div className="cardTop">
-                      <span className="league">{stat.market.replace(/_/g, ' ')}</span>
-                      <span className="status">{stat.confidenceLabel.replace(/_/g, ' ')}</span>
-                    </div>
-                    <strong>{stat.key.replace(/_/g, ' ')}</strong>
-                    <div className="metrics">
-                      <div><span>Samples</span><b>{stat.samples}</b></div>
-                      <div><span>Observed</span><b>{stat.observedWinRate}%</b></div>
-                      <div><span>Estimated</span><b>{stat.smoothedWinRate}%</b></div>
-                    </div>
-                    <small>Success {stat.successes} · Fail {stat.failures}</small>
-                  </div>
-                ))}
+                <b>{methodOverall.confidenceLabel.replace(/_/g, ' ')}</b>
               </div>
-            </section>
-          )}
-          {setupStats.length > 0 && (
-            <section className="historyStats">
-              <div className="historyBar">
-                <span>Historical V1 accuracy by setup. Small samples are intentionally marked as low confidence.</span>
+              <div className="winProbabilityMetrics">
+                <div><span>Observed</span><b>{methodOverall.observedWinRate}%</b></div>
+                <div><span>Samples</span><b>{methodOverall.samples}</b></div>
+                <div><span>Success</span><b>{methodOverall.successes}</b></div>
+                <div><span>Fail</span><b>{methodOverall.failures}</b></div>
               </div>
-              <div className="matchList">
-                {setupStats.map(stat => (
-                  <div className="card compact" key={`${stat.market}-${stat.key}`}>
-                    <div className="cardTop">
-                      <span className="league">{stat.market.replace(/_/g, ' ')}</span>
-                      <span className="status">{stat.confidenceLabel.replace(/_/g, ' ')}</span>
+              {methodStats.length > 0 && (
+                <details className="probabilityBreakdown">
+                  <summary>By setup</summary>
+                  {methodStats.map(stat => (
+                    <div className="probabilitySetupRow" key={`method-${stat.market}-${stat.key}`}>
+                      <span>{stat.market === 'H2_CORNERS' ? 'Corners' : 'Goals'} · {stat.key.replace(/_/g, ' ')}</span>
+                      <b>{stat.smoothedWinRate}%</b>
+                      <small>{stat.successes}/{stat.samples}</small>
                     </div>
-                    <strong>{stat.key.replace(/_/g, ' ')}</strong>
-                    <div className="metrics">
-                      <div><span>Samples</span><b>{stat.samples}</b></div>
-                      <div><span>Observed</span><b>{stat.observedAccuracy}%</b></div>
-                      <div><span>Smoothed</span><b>{stat.smoothedAccuracy}%</b></div>
-                    </div>
-                    <small>W {stat.fullWins} · 1/2W {stat.halfWins} · P {stat.pushes} · 1/2L {stat.halfLosses} · L {stat.fullLosses}</small>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </details>
+              )}
             </section>
           )}
           {history.length > 0 && (
-            <div className="historyBar">
-              <span>HT recommendations and FT outcomes are shared and persisted for later V1 analysis.</span>
+            <div className="historyBar compactHistoryBar">
+              <span>Verified FT only · one record per match</span>
               <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear local</button>
             </div>
           )}
@@ -806,12 +774,12 @@ export default function Home() {
             <strong>
               {view === 'STARRED'
                 ? (loading ? 'Scanning upcoming matches…' : 'No V1 matches in ★ yet')
-                : 'No checkpoint history yet'}
+                : 'No verified FT history yet'}
             </strong>
             <span>
               {view === 'STARRED'
                 ? 'Tap Scan 72h to load qualified fixtures. Saved V1 matches stay here until FT.'
-                : 'Checkpoint snapshots will appear here.'}
+                : 'A match appears here once FT is verified.'}
             </span>
           </div>
         )}
