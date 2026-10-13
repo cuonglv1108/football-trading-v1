@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
-import { League, SetupStats, TradingMatch } from '../lib/types';
+import { League, MethodOverallStats, MethodStats, SetupStats, TradingMatch } from '../lib/types';
 import { buildH2Predictions } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
@@ -123,6 +123,8 @@ export default function Home() {
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
   const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
+  const [methodStats, setMethodStats] = useState<MethodStats[]>([]);
+  const [methodOverall, setMethodOverall] = useState<MethodOverallStats | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const [selectedDay, setSelectedDay] = useState('ALL');
 
@@ -173,6 +175,8 @@ export default function Home() {
       const data = await res.json();
       const shared = (data.rows ?? []) as TradingMatch[];
       setSetupStats((data.stats ?? []) as SetupStats[]);
+      setMethodStats((data.methodStats ?? []) as MethodStats[]);
+      setMethodOverall((data.methodOverall ?? null) as MethodOverallStats | null);
       if (!shared.length) return;
       setHistory(prev => {
         const merged = new Map<string, TradingMatch>();
@@ -707,6 +711,43 @@ export default function Home() {
 
       {view === 'HISTORY' && (
         <>
+          {methodOverall && methodOverall.samples > 0 && (
+            <section className="historyStats">
+              <div className="historyBar">
+                <span>V1 method success = actual H2 result exceeds the matching pre-match FT line. Only API-verified HT + FT records count.</span>
+              </div>
+              <div className="matchList">
+                <div className="card compact">
+                  <div className="cardTop">
+                    <span className="league">METHOD WIN RATE</span>
+                    <span className="status">{methodOverall.confidenceLabel.replace(/_/g, ' ')}</span>
+                  </div>
+                  <strong>{methodOverall.smoothedWinRate}% estimated · {methodOverall.observedWinRate}% observed</strong>
+                  <div className="metrics">
+                    <div><span>Samples</span><b>{methodOverall.samples}</b></div>
+                    <div><span>Success</span><b>{methodOverall.successes}</b></div>
+                    <div><span>Fail</span><b>{methodOverall.failures}</b></div>
+                  </div>
+                  <small>Estimated rate uses a neutral 50% prior so tiny samples do not look artificially certain.</small>
+                </div>
+                {methodStats.map(stat => (
+                  <div className="card compact" key={`method-${stat.market}-${stat.key}`}>
+                    <div className="cardTop">
+                      <span className="league">{stat.market.replace(/_/g, ' ')}</span>
+                      <span className="status">{stat.confidenceLabel.replace(/_/g, ' ')}</span>
+                    </div>
+                    <strong>{stat.key.replace(/_/g, ' ')}</strong>
+                    <div className="metrics">
+                      <div><span>Samples</span><b>{stat.samples}</b></div>
+                      <div><span>Observed</span><b>{stat.observedWinRate}%</b></div>
+                      <div><span>Estimated</span><b>{stat.smoothedWinRate}%</b></div>
+                    </div>
+                    <small>Success {stat.successes} · Fail {stat.failures}</small>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           {setupStats.length > 0 && (
             <section className="historyStats">
               <div className="historyBar">
