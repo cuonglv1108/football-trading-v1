@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
-import { League, MethodOverallStats, MethodStats, SetupStats, TradingMatch } from '../lib/types';
+import { League, MethodOverallStats, MethodStats, TradingMatch } from '../lib/types';
 import { buildH2Predictions } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
@@ -122,7 +122,6 @@ export default function Home() {
   const [budgetStatus, setBudgetStatus] = useState('');
   const [htLoadingId, setHtLoadingId] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState<'HT' | 'FT' | null>(null);
-  const [setupStats, setSetupStats] = useState<SetupStats[]>([]);
   const [methodStats, setMethodStats] = useState<MethodStats[]>([]);
   const [methodOverall, setMethodOverall] = useState<MethodOverallStats | null>(null);
   const [clock, setClock] = useState(() => Date.now());
@@ -174,7 +173,6 @@ export default function Home() {
       const res = await fetch('/api/research', { cache: 'no-store' });
       const data = await res.json();
       const shared = (data.rows ?? []) as TradingMatch[];
-      setSetupStats((data.stats ?? []) as SetupStats[]);
       setMethodStats((data.methodStats ?? []) as MethodStats[]);
       setMethodOverall((data.methodOverall ?? null) as MethodOverallStats | null);
       if (!shared.length) return;
