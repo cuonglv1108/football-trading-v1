@@ -851,3 +851,154 @@ footer {
     min-height:40px !important;
   }
 }
+
+
+/* compact final history + dedicated probability */
+.winProbabilityBox {
+  margin: 2px 0 14px;
+  padding: 15px;
+  border: 1px solid #2b3035;
+  border-radius: 18px;
+  background: #111417;
+}
+.winProbabilityTop {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.winProbabilityTop div {
+  display: grid;
+  gap: 3px;
+}
+.winProbabilityTop span {
+  color: #8d959f;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+.winProbabilityTop strong {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 950;
+  color: #f4f5f6;
+}
+.winProbabilityTop > b {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 900;
+}
+.winProbabilityMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 7px;
+}
+.winProbabilityMetrics > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px 8px;
+  border-radius: 11px;
+  background: #191c20;
+}
+.winProbabilityMetrics span {
+  color: #7d858e;
+  font-size: 9px;
+  font-weight: 800;
+}
+.winProbabilityMetrics b {
+  font-size: 14px;
+}
+.probabilityBreakdown {
+  margin-top: 10px;
+  border-top: 1px solid #25292e;
+  padding-top: 9px;
+}
+.probabilityBreakdown summary {
+  cursor: pointer;
+  color: #b9bec5;
+  font-size: 10px;
+  font-weight: 900;
+}
+.probabilitySetupRow {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.probabilitySetupRow span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9299a2;
+  font-size: 9px;
+}
+.probabilitySetupRow b { font-size: 12px; }
+.probabilitySetupRow small { color: #6f7680; font-size: 9px; }
+
+.compactHistoryBar { margin-top: 2px; }
+.historyFinalDetails {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+.verifyStrip {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: #101816;
+  border: 1px solid rgba(54,212,122,.13);
+}
+.verifyStrip span {
+  color: #7f878f;
+  font-size: 9px;
+  font-weight: 900;
+}
+.verifyStrip b {
+  color: var(--green);
+  font-size: 12px;
+  text-align: right;
+}
+.verifyStrip small {
+  grid-column: 1 / -1;
+  color: #8a9199;
+  font-size: 9px;
+}
+.methodResultCompact {
+  display: grid;
+  gap: 7px;
+}
+.methodOutcome {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 11px;
+  background: #171a1e;
+}
+.methodOutcome span {
+  color: #8d959e;
+  font-size: 9px;
+  font-weight: 900;
+}
+.methodOutcome b {
+  font-size: 12px;
+}
+.methodOutcome small {
+  color: #9299a1;
+  font-size: 10px;
+}
+.methodOutcome.success b { color: var(--green); }
+.methodOutcome.fail b { color: #ff6767; }
+
+@media (max-width:560px) {
+  .winProbabilityMetrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .winProbabilityTop strong { font-size: 30px; }
+}
