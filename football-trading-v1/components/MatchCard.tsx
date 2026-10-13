@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { TradingMatch } from '../lib/types';
 import { deriveH2Execution } from '../lib/h2Execution';
+import { evaluateMethodOutcomes } from '../lib/outcomes';
 
 type Props = {
   match: TradingMatch;
@@ -51,7 +52,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
     const htCorners = match.htCornersHome != null && match.htCornersAway != null
       ? match.htCornersHome + match.htCornersAway
       : null;
-    const methodOutcomes = match.methodOutcomes ?? [];
+    const methodOutcomes = evaluateMethodOutcomes(match);
     const verifiedAction = match.htAction === 'H2_GOALS_AND_CORNERS'
       ? 'GOALS + CORNERS'
       : match.htAction === 'H2_CORNERS'
@@ -119,7 +120,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                   <div key={`${o.market}-${i}`} className={`methodOutcome ${o.status.toLowerCase()}`}>
                     <span>{o.market === 'H2_CORNERS' ? 'CORNERS' : 'GOALS'}</span>
                     <b>{o.status}</b>
-                    <small>{o.actual ?? '—'} {o.status === 'SUCCESS' ? '>' : '≤'} {o.benchmarkLine}</small>
+                    <small>
+                      {o.market === 'H2_CORNERS' ? 'FT total ' : 'H2 '}
+                      {o.actual ?? '—'} vs pre {o.benchmarkLine}
+                    </small>
                   </div>
                 ))}
               </div>
@@ -275,18 +279,18 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
-          {!unverifiedHt && (match.methodOutcomes ?? []).length > 0 && (
+          {!unverifiedHt && evaluateMethodOutcomes(match).length > 0 && (
             <div className="htAdvice">
               <div className="htAdviceTop">
                 <span>METHOD RESULT</span>
-                <b>{(match.methodOutcomes ?? []).some(o => o.status === 'SUCCESS') ? 'CHECKED' : 'PENDING / CHECKED'}</b>
+                <b>{evaluateMethodOutcomes(match).some(o => o.status === 'SUCCESS') ? 'CHECKED' : 'PENDING / CHECKED'}</b>
               </div>
-              {(match.methodOutcomes ?? []).map((o, i) => (
+              {evaluateMethodOutcomes(match).map((o, i) => (
                 <div key={`method-${o.market}-${i}`} className="liveLines">
                   <span>{o.market.replace(/_/g, ' ')}</span>
                   <b>{o.status}</b>
                   <small>
-                    H2 actual {o.actual ?? '—'} · pre-match FT line {o.benchmarkLine}
+                    {o.market === 'H2_CORNERS' ? 'FT corner total' : 'H2 actual'} {o.actual ?? '—'} · pre-match {o.benchmarkLine}
                   </small>
                 </div>
               ))}
