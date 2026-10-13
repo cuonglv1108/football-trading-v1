@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listResearch, saveResearch } from '../../../lib/researchStore';
-import { buildH2Predictions, computeSetupStats, gradeMatchPredictions } from '../../../lib/outcomes';
+import { buildH2Predictions, computeMethodOverall, computeMethodStats, computeSetupStats, evaluateMethodOutcomes, gradeMatchPredictions } from '../../../lib/outcomes';
 import { TradingMatch } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -75,13 +75,17 @@ function combineResearch(rows: TradingMatch[]) {
       const gradedPredictions = trustedFt && (verifiedHt || (ft.htVerified === true && ft.htSourceType === 'API_FOOTBALL'))
         ? gradeMatchPredictions({ ...mergedBase, h2Predictions: predictions })
         : predictions.map(p => ({ ...p, actual: null, grade: 'UNRESOLVED' as const }));
-      combined.push({
+      const mergedFinal: TradingMatch = {
         ...mergedBase,
         ftVerified: trustedFt,
         htVerified: Boolean(verifiedHt || (ft.htVerified === true && ft.htSourceType === 'API_FOOTBALL')),
         h2ActualGoals: trustedFt ? mergedBase.h2ActualGoals : null,
         h2ActualCorners: trustedFt ? mergedBase.h2ActualCorners : null,
         h2Predictions: gradedPredictions,
+      };
+      combined.push({
+        ...mergedFinal,
+        methodOutcomes: evaluateMethodOutcomes(mergedFinal),
       });
     } else if (group.ht) {
       combined.push({
@@ -111,7 +115,9 @@ export async function GET() {
   });
   const rows = combineResearch(rawRows);
   const stats = computeSetupStats(rows);
-  return NextResponse.json({ rows, stats }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  const methodStats = computeMethodStats(rows);
+  const methodOverall = computeMethodOverall(rows);
+  return NextResponse.json({ rows, stats, methodStats, methodOverall }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
 }
 
 export async function POST(req: NextRequest) {
