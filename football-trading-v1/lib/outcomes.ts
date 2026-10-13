@@ -1,4 +1,4 @@
-import { H2Prediction, OutcomeGrade, SetupStats, TradingMatch } from './types';
+import { H2Prediction, MethodOutcome, MethodOverallStats, MethodStats, OutcomeGrade, SetupStats, TradingMatch } from './types';
 
 function simpleOver(actual: number, line: number): 'WIN' | 'PUSH' | 'LOSS' {
   if (actual > line) return 'WIN';
@@ -173,4 +173,155 @@ export function computeSetupStats(rows: TradingMatch[]): SetupStats[] {
       confidenceLabel: (samples >= 20 ? 'ESTABLISHED' : samples >= 8 ? 'DEVELOPING' : 'LOW_SAMPLE') as SetupStats['confidenceLabel'],
     };
   }).sort((a, b) => b.samples - a.samples);
+}
+
+
+function setupKeyForMarket(match: TradingMatch, market: 'H2_GOALS' | 'H2_CORNERS') {
+  const prediction = (match.h2Predictions ?? []).find(p => p.market === market && p.setupKey);
+  if (prediction?.setupKey) return prediction.setupKey;
+
+  if (market === 'H2_GOALS') return 'HT_00_CORNERS_LE5_GOALS';
+  if (match.favouriteLosing) return 'FAV_LOSING_CORNERS_LE5';
+  if (match.favouriteCoveringHandicap) return 'FAV_COVERING_CORNERS_LE5';
+  if (match.ftGoalOverClear) return 'FT_OVER_CLEAR_CORNERS_LE5';
+  if (match.htAction === 'H2_GOALS_AND_CORNERS') return 'HT_00_CORNERS_LE5_CORNERS';
+  return 'OTHER_CORNERS_LE5';
+}
+
+export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
+  const out: MethodOutcome[] = [];
+  const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
+  const verifiedFt = match.ftVerified === true &&
+    /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
+
+  const add = (
+    market: 'H2_GOALS' | 'H2_CORNERS',
+    supported: boolean,
+    benchmarkLine: number,
+    actual: number | null | undefined
+  ) => {
+    if (!supported) return;
+    const setupKey = setupKeyForMarket(match, market);
+
+    if (!verifiedHt) {
+      out.push({
+        market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
+        reason: 'HT recommendation was not API-verified, so it is excluded from method win-rate statistics.',
+      });
+      return;
+    }
+
+    if (!verifiedFt) {
+      out.push({
+        market, setupKey, benchmarkLine, actual: actual ?? null, status: 'PENDING',
+        reason: 'Waiting for verified FT data.',
+      });
+      return;
+    }
+
+    if (actual == null || !Number.isFinite(actual)) {
+      out.push({
+        market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
+        reason: 'Verified FT exists, but H2 actual could not be reconstructed safely.',
+      });
+      return;
+    }
+
+    const success = actual > benchmarkLine;
+    out.push({
+      market,
+      setupKey,
+      benchmarkLine,
+      actual,
+      status: success ? 'SUCCESS' : 'FAIL',
+      reason: success
+        ? `SUCCESS: actual H2 ${market === 'H2_CORNERS' ? 'corners' : 'goals'} ${actual} > pre-match FT line ${benchmarkLine}.`
+        : `FAIL: actual H2 ${market === 'H2_CORNERS' ? 'corners' : 'goals'} ${actual} did not exceed pre-match FT line ${benchmarkLine}.`,
+    });
+  };
+
+  add(
+    'H2_GOALS',
+    match.h2GoalsAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_GOALS_AND_CORNERS',
+    match.prematchGoalLine,
+    match.h2ActualGoals
+  );
+  add(
+    'H2_CORNERS',
+    match.h2CornersAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_CORNERS' || match.htAction === 'H2_GOALS_AND_CORNERS',
+    match.prematchCornerLine,
+    match.h2ActualCorners
+  );
+
+  return out;
+}
+
+function confidenceForSamples(samples: number): MethodStats['confidenceLabel'] {
+  return samples >= 20 ? 'ESTABLISHED' : samples >= 8 ? 'DEVELOPING' : 'LOW_SAMPLE';
+}
+
+function smoothedRate(successes: number, samples: number) {
+  const priorN = 8;
+  return Math.round(((successes + priorN * 0.5) / (samples + priorN)) * 1000) / 10;
+}
+
+export function computeMethodStats(rows: TradingMatch[]): MethodStats[] {
+  const map = new Map<string, { key: string; market: 'H2_GOALS' | 'H2_CORNERS'; successes: number; failures: number }>();
+
+  for (const row of rows) {
+    if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
+      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
+      !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
+
+    const outcomes = row.methodOutcomes?.length ? row.methodOutcomes : evaluateMethodOutcomes(row);
+    for (const outcome of outcomes) {
+      if (outcome.status !== 'SUCCESS' && outcome.status !== 'FAIL') continue;
+      const id = `${outcome.market}|${outcome.setupKey}`;
+      const bucket = map.get(id) ?? { key: outcome.setupKey, market: outcome.market, successes: 0, failures: 0 };
+      if (outcome.status === 'SUCCESS') bucket.successes += 1;
+      else bucket.failures += 1;
+      map.set(id, bucket);
+    }
+  }
+
+  return Array.from(map.values()).map(bucket => {
+    const samples = bucket.successes + bucket.failures;
+    return {
+      key: bucket.key,
+      market: bucket.market,
+      samples,
+      successes: bucket.successes,
+      failures: bucket.failures,
+      observedWinRate: samples ? Math.round((bucket.successes / samples) * 1000) / 10 : 0,
+      smoothedWinRate: smoothedRate(bucket.successes, samples),
+      confidenceLabel: confidenceForSamples(samples),
+    };
+  }).sort((a, b) => b.samples - a.samples);
+}
+
+export function computeMethodOverall(rows: TradingMatch[]): MethodOverallStats {
+  let successes = 0;
+  let failures = 0;
+
+  for (const row of rows) {
+    if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
+      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
+      !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
+
+    const outcomes = row.methodOutcomes?.length ? row.methodOutcomes : evaluateMethodOutcomes(row);
+    for (const outcome of outcomes) {
+      if (outcome.status === 'SUCCESS') successes += 1;
+      else if (outcome.status === 'FAIL') failures += 1;
+    }
+  }
+
+  const samples = successes + failures;
+  return {
+    samples,
+    successes,
+    failures,
+    observedWinRate: samples ? Math.round((successes / samples) * 1000) / 10 : 0,
+    smoothedWinRate: smoothedRate(successes, samples),
+    confidenceLabel: confidenceForSamples(samples),
+  };
 }
