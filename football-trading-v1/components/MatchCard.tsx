@@ -17,7 +17,6 @@ type Props = {
 
 export default function MatchCard({ match, starred = false, onToggleStar, onCheckpoint, onHtCheck, htLoading = false, htCheckReady = false, compact = false }: Props) {
   const totalCorners = match.cornersHome + match.cornersAway;
-  const probability = match.winProbability ?? 0;
   const [expanded, setExpanded] = useState(false);
   const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
   const handicapText = match.handicapVerified === false
@@ -32,10 +31,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const executionText = unverifiedHt ? 'UNVERIFIED HT · NO AUTOMATIC ENTRY'
     : manualHt ? (match.htAction === 'NO_ENTRY' ? 'NO ENTRY · MANUAL HT' : 'MANUAL HT · VERIFY BEFORE ENTRY')
     : (execution?.text ?? match.h2ExecutionText);
-  const executionDetail = unverifiedHt
-    ? 'Previous GPT-search HT corners and H2 lines were not verified against a fixture/statistics provider. This signal is disabled.'
-    : manualHt ? 'User-entered figures, not independently verified. Check halftime corners and H2 odds with the sportsbook.'
-    : (execution?.detail ?? match.h2ExecutionDetail);
   const kickoffDate = match.kickoff ? new Date(match.kickoff) : null;
   const kickoffTime = kickoffDate && Number.isFinite(kickoffDate.getTime())
     ? kickoffDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -48,6 +43,78 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         ? `${match.minute ?? ''}'`
         : match.status;
   const showScore = match.status !== 'PRE' && !unverifiedHt;
+
+  if (compact && match.researchPhase === 'FT') {
+    const htCorners = match.htCornersHome != null && match.htCornersAway != null
+      ? match.htCornersHome + match.htCornersAway
+      : null;
+    const methodOutcomes = match.methodOutcomes ?? [];
+    const verifiedAction = match.htAction === 'H2_GOALS_AND_CORNERS'
+      ? 'GOALS + CORNERS'
+      : match.htAction === 'H2_CORNERS'
+        ? 'CORNERS'
+        : match.htAction === 'NO_ENTRY'
+          ? 'NO ENTRY'
+          : '—';
+
+    return (
+      <article className="card compact historyFinalCard">
+        <div className="matchAccent" />
+        <div className="matchCompactRow">
+          <div className="matchTimeBlock">
+            <strong>FT</strong>
+            <span>{match.league}</span>
+          </div>
+          <div className="clubPair">
+            <div className="clubLine">
+              <span className="teamBadge">{match.homeLogo ? <img src={match.homeLogo} alt="" /> : <b>{match.home.slice(0, 2).toUpperCase()}</b>}</span>
+              <strong>{match.home}</strong>
+              <b className="teamScore">{match.ftScoreHome ?? match.scoreHome}</b>
+            </div>
+            <div className="clubLine">
+              <span className="teamBadge">{match.awayLogo ? <img src={match.awayLogo} alt="" /> : <b>{match.away.slice(0, 2).toUpperCase()}</b>}</span>
+              <strong>{match.away}</strong>
+              <b className="teamScore">{match.ftScoreAway ?? match.scoreAway}</b>
+            </div>
+          </div>
+          <div className="matchSideActions"><span className="v1Dot">V1</span></div>
+        </div>
+
+        <button className="detailsBtn" onClick={() => setExpanded(v => !v)}>
+          {expanded ? 'Hide details' : 'Details'}
+        </button>
+
+        {expanded && (
+          <div className="historyFinalDetails">
+            <div className="verifyStrip">
+              <span>HT VERIFIED</span>
+              <b>{verifiedAction}</b>
+              <small>Corners {htCorners ?? '—'} · G {match.liveGoalLine ?? '—'} · C {match.liveCornerLine ?? '—'}</small>
+            </div>
+
+            <div className="metrics">
+              <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
+              <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
+              <div><span>H2 corners</span><b>{match.h2ActualCorners ?? '—'}</b></div>
+              <div><span>H2 goals</span><b>{match.h2ActualGoals ?? '—'}</b></div>
+            </div>
+
+            {methodOutcomes.length > 0 && (
+              <div className="methodResultCompact">
+                {methodOutcomes.map((o, i) => (
+                  <div key={`${o.market}-${i}`} className={`methodOutcome ${o.status.toLowerCase()}`}>
+                    <span>{o.market === 'H2_CORNERS' ? 'CORNERS' : 'GOALS'}</span>
+                    <b>{o.status}</b>
+                    <small>{o.actual ?? '—'} {o.status === 'SUCCESS' ? '>' : '≤'} {o.benchmarkLine}</small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </article>
+    );
+  }
 
   return (
     <article className={`card state-${match.state?.toLowerCase()} ${compact ? 'compact' : ''}`}>
@@ -120,7 +187,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <span>H2 NEXT STEP</span>
             <b>{executionText}</b>
           </div>
-          {executionDetail && <p>{executionDetail}</p>}
           {!unverifiedHt && (match.liveGoalLine != null || match.liveCornerLine != null) && (
             <small>H2 lines · Goals {match.liveGoalLine ?? '—'} · Corners {match.liveCornerLine ?? '—'}</small>
           )}
@@ -181,16 +247,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           )}
 
-          <div className="probabilityRow">
-            <div>
-              <span>V1</span>
-              <b>{probability}%</b>
-            </div>
-            <div className="probabilityTrack">
-              <div className="probabilityFill" style={{ width: `${probability}%` }} />
-            </div>
-          </div>
-
           {!unverifiedHt && (match.redCardsHome != null || match.redCardsAway != null) && (
             <div className="liveLines">
               <span>Red cards</span>
@@ -202,16 +258,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div className="liveLines">
               <span>H2 actual</span>
               <b>Goals {match.h2ActualGoals ?? '—'} · Corners {match.h2ActualCorners ?? '—'}</b>
-              {reliableFt && (
-                <small>
-                  {match.h2ActualGoals != null
-                    ? `H2 goals produced ${match.h2ActualGoals}. ${match.h2ActualGoals >= 2 ? 'This was strong H2 goal activity, but exact WIN/PUSH depends on the HT line.' : match.h2ActualGoals === 1 ? 'Some lower H2 goal lines may have won/pushed; exact grade depends on the HT line.' : 'No H2 goals were scored.'}`
-                    : ''}
-                  {match.h2ActualCorners != null
-                    ? ` H2 corners produced ${match.h2ActualCorners}. Exact outcome depends on the H2 corner line saved at HT.`
-                    : ''}
-                </small>
-              )}
             </div>
           )}
 
@@ -228,7 +274,6 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                   <small>
                     H2 actual {o.actual ?? '—'} · pre-match FT line {o.benchmarkLine}
                   </small>
-                  <small>{o.reason}</small>
                 </div>
               ))}
             </div>
@@ -247,14 +292,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                     {p.active ? `OVER ${p.line ?? '—'}` : `RESEARCH ONLY · line ${p.line ?? '—'}`}
                     {p.grade && p.grade !== 'PENDING' ? ` · ${p.grade.replace(/_/g, ' ')}` : ''}
                   </b>
-                  <small>{p.note}</small>
                   {p.actual != null && <small>Actual H2: {p.actual}</small>}
-                  {match.researchPhase === 'FT' && p.grade === 'UNRESOLVED' && (
-                    <small>
-                      Exact bet grade is unresolved because the HT market line was not verified.
-                      {p.actual != null ? ` The actual H2 result was ${p.actual}, so this record still remains useful as research data.` : ''}
-                    </small>
-                  )}
                 </div>
               ))}
             </div>
