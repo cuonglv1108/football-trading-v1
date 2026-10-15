@@ -84,6 +84,18 @@ function isWatchExpired(match: TradingMatch, now: number = Date.now()) {
     now - kickoff >= ARCHIVE_AFTER_MS;
 }
 
+function richerLifecycleMatch(a: TradingMatch | undefined, b: TradingMatch) {
+  if (!a) return b;
+  const score = (m: TradingMatch) =>
+    (m.ftVerified === true ? 1000 : 0) +
+    (m.htVerified === true ? 500 : 0) +
+    (m.htAction && m.htAction !== 'NEED_INPUT' ? 100 : 0) +
+    (m.htCornersHome != null && m.htCornersAway != null ? 50 : 0) +
+    ((m.h2Predictions?.length ?? 0) > 0 ? 20 : 0) +
+    (m.liveCornerLine != null || m.liveGoalLine != null ? 10 : 0);
+  return score(b) > score(a) ? b : a;
+}
+
 function formatCountdown(minutes: number) {
   const total = Math.max(1, Math.ceil(minutes));
   if (total < 60) return `${total}m`;
@@ -243,7 +255,10 @@ export default function Home() {
     const pool = phase === 'FT'
       ? [...starred, ...history.filter(m => m.watchStatus === 'EXPIRED_UNVERIFIED')]
       : starred;
-    const unique = new Map(pool.filter(m => dueForPhase(m, phase)).map(m => [m.id, m]));
+    const unique = new Map<string, TradingMatch>();
+    for (const m of pool.filter(m => dueForPhase(m, phase))) {
+      unique.set(m.id, richerLifecycleMatch(unique.get(m.id), m));
+    }
     const candidates = Array.from(unique.values()).slice(0, 10);
     if (!candidates.length) {
       setNotice(phase === 'HT' ? 'No HT checks are due right now.' : 'No FT checks are due right now.');
@@ -329,7 +344,9 @@ export default function Home() {
         setStarred(prev => {
           const merged = new Map<string, TradingMatch>();
           for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
-          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
+          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))) {
+            merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
+          }
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
@@ -360,7 +377,9 @@ export default function Home() {
     const merged = new Map<string, TradingMatch>();
 
     for (const m of current.filter(m => !isWatchExpired(m))) merged.set(m.id, m);
-    for (const m of autoPicks.filter(m => !isWatchExpired(m))) merged.set(m.id, m);
+    for (const m of autoPicks.filter(m => !isWatchExpired(m))) {
+      merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
+    }
 
     const next = Array.from(merged.values()).sort(
       (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
@@ -405,7 +424,9 @@ export default function Home() {
           const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
           const merged = new Map<string, TradingMatch>();
           for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
-          for (const m of autoPicks.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
+          for (const m of autoPicks.filter(m => m.status !== 'FT' && !isWatchExpired(m))) {
+            merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
+          }
           const next = Array.from(merged.values()).sort(
             (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
           );
