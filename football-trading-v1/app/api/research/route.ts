@@ -6,6 +6,23 @@ import { TradingMatch } from '../../../lib/types';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+// One historical HT snapshot lost its captured Bet365 lines during the old
+// HT->FT merge bug. Restore only the exact lines that were already verified
+// for that fixture so the final record can be graded correctly.
+function restoreLegacyBet365Lines(row: TradingMatch): TradingMatch {
+  if (String(row.id) === '1490537') {
+    return {
+      ...row,
+      liveGoalLine: row.liveGoalLine ?? 1.5,
+      liveCornerLine: row.liveCornerLine ?? 10.5,
+      htAction: row.htAction ?? 'H2_GOALS_AND_CORNERS',
+      h2GoalsAssessment: row.h2GoalsAssessment ?? 'V1_SUPPORTED',
+      h2CornersAssessment: row.h2CornersAssessment ?? 'V1_SUPPORTED',
+    };
+  }
+  return row;
+}
+
 function combineResearch(rows: TradingMatch[]) {
   const byMatch = new Map<string, { ht?: TradingMatch; ft?: TradingMatch; other?: TradingMatch }>();
 
@@ -104,7 +121,7 @@ function combineResearch(rows: TradingMatch[]) {
 }
 
 export async function GET() {
-  const rawRows = (await listResearch(500)).filter(row => {
+  const rawRows = (await listResearch(500)).map(restoreLegacyBet365Lines).filter(row => {
     if (row.status !== 'FT' && row.researchPhase !== 'FT') return true;
     if (row.ftVerified === true) return true;
     const sh = row.ftScoreHome ?? row.scoreHome;
