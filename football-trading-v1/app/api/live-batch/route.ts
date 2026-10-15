@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TradingMatch } from '../../../lib/types';
-import { saveResearchBatch } from '../../../lib/researchStore';
+import { listResearch, saveResearchBatch } from '../../../lib/researchStore';
 import { buildH2Predictions, evaluateMethodOutcomes, gradeMatchPredictions } from '../../../lib/outcomes';
 import { deriveH2Execution } from '../../../lib/h2Execution';
 import { collectVerifiedFt } from '../../../lib/verifiedFt';
@@ -229,6 +229,13 @@ export async function POST(req: NextRequest) {
             }));
           }
         }
+        const verifiedHtSnapshots = results.filter(
+          m => m.htVerified === true && m.htSourceType === 'API_FOOTBALL' && m.researchPhase === 'HT'
+        );
+        // Keep verified HT internally for the later FT grader. /api/research only
+        // exposes final FT records, so this does not make HT reappear in History.
+        if (verifiedHtSnapshots.length) await saveResearchBatch(verifiedHtSnapshots);
+
         return NextResponse.json({
           providerStatus: 'CONNECTED', phase: 'HT', results,
           verifiedCount, pendingCount: results.length - verifiedCount,
@@ -245,13 +252,61 @@ export async function POST(req: NextRequest) {
     });
     ftJobRunning = true;
     try {
-      const report = await collectVerifiedFt(matches);
+      // Recover the richer verified HT snapshot from server storage before FT
+      // grading. This prevents a later pre-match scan/reload from wiping the HT
+      // action, HT corners or H2 recommendation on the client.
+      const researchRows = await listResearch(1000);
+      const htById = new Map<string, TradingMatch>();
+      for (const row of researchRows) {
+        if (
+          row.researchPhase === 'HT' &&
+          row.htVerified === true &&
+          row.htSourceType === 'API_FOOTBALL' &&
+          !htById.has(row.id)
+        ) {
+          htById.set(row.id, row);
+        }
+      }
+
+      const enrichedMatches = matches.map(match => {
+        const ht = htById.get(match.id);
+        if (!ht) return match;
+        return {
+          ...match,
+          htAction: ht.htAction ?? match.htAction,
+          htAdvice: ht.htAdvice ?? match.htAdvice,
+          htConfidence: ht.htConfidence ?? match.htConfidence,
+          htEvaluationType: ht.htEvaluationType ?? match.htEvaluationType,
+          h2GoalsAssessment: ht.h2GoalsAssessment ?? match.h2GoalsAssessment,
+          h2CornersAssessment: ht.h2CornersAssessment ?? match.h2CornersAssessment,
+          htVerified: true,
+          htSourceType: 'API_FOOTBALL' as const,
+          htSourceSummary: ht.htSourceSummary ?? match.htSourceSummary,
+          htSourceUrls: ht.htSourceUrls ?? match.htSourceUrls,
+          htCheckedAt: ht.htCheckedAt ?? match.htCheckedAt,
+          htScoreHome: ht.htScoreHome ?? match.htScoreHome,
+          htScoreAway: ht.htScoreAway ?? match.htScoreAway,
+          htCornersHome: ht.htCornersHome ?? match.htCornersHome,
+          htCornersAway: ht.htCornersAway ?? match.htCornersAway,
+          liveGoalLine: ht.liveGoalLine ?? match.liveGoalLine,
+          liveCornerLine: ht.liveCornerLine ?? match.liveCornerLine,
+          favouriteCoveringHandicap: ht.favouriteCoveringHandicap ?? match.favouriteCoveringHandicap,
+          favouriteLosing: ht.favouriteLosing ?? match.favouriteLosing,
+          ftGoalOverClear: ht.ftGoalOverClear ?? match.ftGoalOverClear,
+          h2ExecutionAction: ht.h2ExecutionAction ?? match.h2ExecutionAction,
+          h2ExecutionText: ht.h2ExecutionText ?? match.h2ExecutionText,
+          h2ExecutionDetail: ht.h2ExecutionDetail ?? match.h2ExecutionDetail,
+          h2Predictions: ht.h2Predictions?.length ? ht.h2Predictions : match.h2Predictions,
+        };
+      });
+
+      const report = await collectVerifiedFt(enrichedMatches);
       if (report.providerStatus !== 'CONNECTED') return NextResponse.json({
         providerStatus: report.providerStatus, message: report.message,
         results: [], webCalls: 0, estimatedCostUsd: 0,
       });
       const byId = new Map(report.rows.map(row => [row.id, row]));
-      const results = matches.map(match => ftEvaluate(match,
+      const results = enrichedMatches.map(match => ftEvaluate(match,
         byId.get(match.id) ?? { id: match.id, matchEnded: false, sourceSummary: 'No verified fixture', sourceUrls: [] }));
       const verified = results.filter(m => m.status === 'FT' && m.ftVerified === true);
       if (verified.length) await saveResearchBatch(verified);
