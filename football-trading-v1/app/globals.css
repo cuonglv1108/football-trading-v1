@@ -1064,3 +1064,9 @@ footer {
   background: rgba(255,255,255,.04);
   border-color: rgba(255,255,255,.08);
 }
+
+.resultBadge.draw {
+  color: #f2c46d;
+  background: rgba(242,196,109,.09);
+  border-color: rgba(242,196,109,.24);
+}
