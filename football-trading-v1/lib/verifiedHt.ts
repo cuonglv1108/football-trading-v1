@@ -72,6 +72,24 @@ function collectBets(node: unknown, out: Array<{ name: string; values: any[] }> 
   return out;
 }
 
+function collectBet365Bets(node: unknown, out: Array<{ name: string; values: any[] }> = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    for (const item of node) collectBet365Bets(item, out);
+    return out;
+  }
+
+  const obj = node as Record<string, unknown>;
+  const isBet365 = String(obj.name ?? '').trim().toLowerCase() === 'bet365' || Number(obj.id) === 8;
+  if (isBet365 && Array.isArray(obj.bets)) {
+    collectBets(obj.bets, out);
+    return out;
+  }
+
+  for (const value of Object.values(obj)) collectBet365Bets(value, out);
+  return out;
+}
+
 function balancedLiveLine(values: any[]): number | null {
   const candidates = new Map<number, { over?: number; under?: number; main?: boolean }>();
   for (const value of values ?? []) {
@@ -99,10 +117,33 @@ function balancedLiveLine(values: any[]): number | null {
 async function fetchLiveH2Lines(fixtureId: number, key: string) {
   try {
     const rows = await apiGet(`/odds/live?fixture=${fixtureId}`, key);
-    const bets = collectBets(rows);
+
+    // V1 execution must use BET365 lines only.
+    // Goals: Bet365 2nd-half goals line.
+    // Corners: Bet365 LIVE full-match total-corners line at HT.
+    // Example: HT corners 5, Bet365 live total corners 10.5 -> the corner trade
+    // settles against the final FT corner total, not H2 corners alone.
+    const bets = collectBet365Bets(rows);
     const secondHalf = (name: string) => /second\s*half|2nd\s*half|2nd\s*h|\bh2\b/i.test(name);
-    const goalBet = bets.find(b => secondHalf(b.name) && !/corner/i.test(b.name) && /goal|total|over.*under|over\/under/i.test(b.name));
-    const cornerBet = bets.find(b => secondHalf(b.name) && /corner/i.test(b.name) && /total|over|under/i.test(b.name));
+    const firstHalf = (name: string) => /first\s*half|1st\s*half|1st\s*h|\bh1\b/i.test(name);
+
+    const goalBet = bets.find(
+      b => secondHalf(b.name) && !/corner/i.test(b.name) &&
+        /goal|total|over.*under|over\/under/i.test(b.name) &&
+        balancedLiveLine(b.values) != null
+    );
+
+    const cornerBets = bets.filter(
+      b => /corner/i.test(b.name) &&
+        !firstHalf(b.name) &&
+        !secondHalf(b.name) &&
+        !/home|away|team|race|first to|odd\/even|exact/i.test(b.name) &&
+        balancedLiveLine(b.values) != null
+    );
+    const cornerBet =
+      cornerBets.find(b => /total\s*corners|corners\s*over.*under|asian.*corner/i.test(b.name)) ??
+      cornerBets[0];
+
     return {
       liveGoalLine: goalBet ? balancedLiveLine(goalBet.values) : null,
       liveCornerLine: cornerBet ? balancedLiveLine(cornerBet.values) : null,
@@ -212,7 +253,7 @@ export async function fetchVerifiedHt(match: TradingMatch): Promise<HtResult> {
         missingInputs,
         checkedAt: new Date().toISOString(),
         htVerified: true, htSourceType: 'API_FOOTBALL',
-        sourceSummary: `API-Football fixture ${id}: confirmed HT score/corners${liveLines.liveGoalLine != null || liveLines.liveCornerLine != null ? ' + live H2 odds' : ''}`,
+        sourceSummary: `API-Football fixture ${id}: confirmed HT score/corners${liveLines.liveGoalLine != null || liveLines.liveCornerLine != null ? ' + Bet365 HT execution lines' : ''}`,
         sourceUrls: [],
       },
     };
