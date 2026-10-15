@@ -58,8 +58,8 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
       setupKey: 'HT_00_CORNERS_LE5_CORNERS',
       active: cornerLine != null,
       note: cornerLine == null
-        ? 'V1 corner setup triggered; exact H2 corner line was not verified.'
-        : `V1 H2 Corners Over ${cornerLine}. H2 corner line is contextual, not a fixed 8.5+ gate.`,
+        ? 'V1 corner setup triggered; exact Bet365 live total-corners line was not verified.'
+        : `V1 Bet365 live Total Corners Over ${cornerLine} at HT.`,
       grade: 'PENDING',
     });
   } else if (match.htAction === 'H2_CORNERS') {
@@ -78,8 +78,8 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
       setupKey,
       active: cornerLine != null,
       note: cornerLine == null
-        ? 'V1 corner setup triggered; exact H2 corner line was not verified.'
-        : `V1 H2 Corners Over ${cornerLine}. H2 corner line is contextual, not a fixed 8.5+ gate.`,
+        ? 'V1 corner setup triggered; exact Bet365 live total-corners line was not verified.'
+        : `V1 Bet365 live Total Corners Over ${cornerLine} at HT.`,
       grade: 'PENDING',
     });
   } else if (match.htAction === 'NO_ENTRY') {
@@ -111,8 +111,14 @@ export function buildH2Predictions(match: TradingMatch): H2Prediction[] {
 }
 
 export function gradeMatchPredictions(match: TradingMatch): H2Prediction[] {
+  const ftCorners = match.ftCornersHome != null && match.ftCornersAway != null
+    ? match.ftCornersHome + match.ftCornersAway
+    : match.status === 'FT'
+      ? match.cornersHome + match.cornersAway
+      : null;
+
   return (match.h2Predictions ?? []).map(p => {
-    const actual = p.market === 'H2_GOALS' ? match.h2ActualGoals : match.h2ActualCorners;
+    const actual = p.market === 'H2_GOALS' ? match.h2ActualGoals : ftCorners;
     return {
       ...p,
       actual: actual ?? null,
@@ -278,7 +284,7 @@ export function inferVerifiedHtAction(match: TradingMatch): TradingMatch['htActi
   return favouriteLosing || favouriteCovering || ftGoalOverClear ? 'H2_CORNERS' : 'NO_ENTRY';
 }
 
-export function methodMatchStatus(match: TradingMatch): 'WIN' | 'LOSE' | 'NE' | null {
+export function methodMatchStatus(match: TradingMatch): 'WIN' | 'LOSE' | 'DRAW' | 'NE' | null {
   const action = inferVerifiedHtAction(match);
   if (action === 'NO_ENTRY') return 'NE';
   if (action !== 'H2_CORNERS' && action !== 'H2_GOALS_AND_CORNERS') return null;
@@ -288,9 +294,11 @@ export function methodMatchStatus(match: TradingMatch): 'WIN' | 'LOSE' | 'NE' | 
 
   if (!outcomes.length) return null;
 
-  // A match marked WIN means every V1 market actually recommended at HT succeeded.
-  // If any recommended leg fails, the match-level badge is LOSE.
-  return outcomes.every(o => o.status === 'SUCCESS') ? 'WIN' : 'LOSE';
+  const wins = outcomes.filter(o => o.status === 'SUCCESS').length;
+  const losses = outcomes.filter(o => o.status === 'FAIL').length;
+  if (wins > losses) return 'WIN';
+  if (losses > wins) return 'LOSE';
+  return 'DRAW';
 }
 
 export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
@@ -298,99 +306,70 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
   const verifiedHt = hasVerifiedHtEvidence(match);
   const verifiedFt = match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
+  const action = inferVerifiedHtAction(match);
 
-  const commonState = (
-    market: 'H2_GOALS' | 'H2_CORNERS',
-    benchmarkLine: number,
-    actual: number | null,
-    setupKey: string
-  ): MethodOutcome | null => {
-    if (!verifiedHt) {
-      return {
-        market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
-        reason: 'HT not verified',
-      };
-    }
-    if (!verifiedFt) {
-      return {
-        market, setupKey, benchmarkLine, actual, status: 'PENDING',
-        reason: 'Waiting FT',
-      };
-    }
-    if (actual == null || !Number.isFinite(actual)) {
-      return {
-        market, setupKey, benchmarkLine, actual: null, status: 'UNRESOLVED',
-        reason: 'Missing verified result',
-      };
-    }
-    return null;
+  const predictionLine = (market: 'H2_GOALS' | 'H2_CORNERS') => {
+    const saved = (match.h2Predictions ?? []).find(p => p.market === market && p.line != null)?.line ?? null;
+    if (saved != null) return saved;
+    return market === 'H2_GOALS' ? (match.liveGoalLine ?? null) : (match.liveCornerLine ?? null);
   };
 
-  const inferredAction = inferVerifiedHtAction(match);
-
-  const goalsSupported =
-    match.h2GoalsAssessment === 'V1_SUPPORTED' || inferredAction === 'H2_GOALS_AND_CORNERS';
-
-  if (goalsSupported) {
-    const market: 'H2_GOALS' = 'H2_GOALS';
+  const settle = (
+    market: 'H2_GOALS' | 'H2_CORNERS',
+    supported: boolean,
+    actual: number | null
+  ) => {
+    if (!supported) return;
     const setupKey = setupKeyForMarket(match, market);
-    const benchmarkLine = match.prematchGoalLine;
-    const actual = match.h2ActualGoals ?? null;
-    const unresolved = commonState(market, benchmarkLine, actual, setupKey);
-    if (unresolved) {
-      out.push(unresolved);
-    } else {
-      const success = (actual as number) > benchmarkLine;
-      out.push({
-        market,
-        setupKey,
-        benchmarkLine,
-        actual,
-        status: success ? 'SUCCESS' : 'FAIL',
-        reason: success
-          ? `H2 goals ${actual} > pre-match ${benchmarkLine}`
-          : `H2 goals ${actual} ≤ pre-match ${benchmarkLine}`,
-      });
+    const line = predictionLine(market);
+
+    if (!verifiedHt) {
+      out.push({ market, setupKey, benchmarkLine: line ?? 0, actual: null, status: 'UNRESOLVED', reason: 'HT not verified' });
+      return;
     }
-  }
-
-  const cornersSupported =
-    match.h2CornersAssessment === 'V1_SUPPORTED' ||
-    inferredAction === 'H2_CORNERS' ||
-    inferredAction === 'H2_GOALS_AND_CORNERS';
-
-  if (cornersSupported) {
-    const market: 'H2_CORNERS' = 'H2_CORNERS';
-    const setupKey = setupKeyForMarket(match, market);
-    const benchmarkLine = match.prematchCornerLine;
-    const totals = reconstructedHtTotals(match);
-    const htCorners = totals.htCorners;
-    const h2Corners = match.h2ActualCorners ?? null;
-    const finalCorners = totals.ftCorners ??
-      (htCorners != null && h2Corners != null ? htCorners + h2Corners : null);
-
-    const unresolved = commonState(market, benchmarkLine, finalCorners, setupKey);
-    if (unresolved) {
-      out.push(unresolved);
-    } else {
-      // V1 corner method success is based on the FINAL corner total:
-      // verified HT corners + H2 corners must finish at least 1.0 corner
-      // above the original pre-match FT corner line.
-      // Example: pre 10.5 -> FT 12 is success; FT 11 is not.
-      const margin = (finalCorners as number) - benchmarkLine;
-      const success = margin >= 1;
-      out.push({
-        market,
-        setupKey,
-        benchmarkLine,
-        actual: finalCorners,
-        status: success ? 'SUCCESS' : 'FAIL',
-        reason: success
-          ? `FT corners ${finalCorners} = HT ${htCorners} + H2 ${h2Corners}; +${margin} vs pre-match ${benchmarkLine}`
-          : `FT corners ${finalCorners} = HT ${htCorners} + H2 ${h2Corners}; +${margin} vs pre-match ${benchmarkLine}`,
-      });
+    if (line == null || !Number.isFinite(line)) {
+      out.push({ market, setupKey, benchmarkLine: 0, actual, status: 'UNRESOLVED', reason: 'Missing Bet365 HT line' });
+      return;
     }
-  }
+    if (!verifiedFt) {
+      out.push({ market, setupKey, benchmarkLine: line, actual, status: 'PENDING', reason: 'Waiting FT' });
+      return;
+    }
+    if (actual == null || !Number.isFinite(actual)) {
+      out.push({ market, setupKey, benchmarkLine: line, actual: null, status: 'UNRESOLVED', reason: 'Missing verified result' });
+      return;
+    }
+
+    const grade = gradeAsianOver(actual, line);
+    const win = grade === 'FULL_WIN' || grade === 'HALF_WIN';
+    const loss = grade === 'FULL_LOSS' || grade === 'HALF_LOSS';
+
+    out.push({
+      market,
+      setupKey,
+      benchmarkLine: line,
+      actual,
+      status: win ? 'SUCCESS' : loss ? 'FAIL' : 'UNRESOLVED',
+      reason: `${market === 'H2_GOALS' ? 'H2 goals' : 'FT corners'} ${actual} vs Bet365 ${line} · ${grade}`,
+    });
+  };
+
+  const ftCorners = match.ftCornersHome != null && match.ftCornersAway != null
+    ? match.ftCornersHome + match.ftCornersAway
+    : match.status === 'FT'
+      ? match.cornersHome + match.cornersAway
+      : null;
+
+  settle(
+    'H2_GOALS',
+    action === 'H2_GOALS_AND_CORNERS',
+    match.h2ActualGoals ?? null
+  );
+  settle(
+    'H2_CORNERS',
+    action === 'H2_CORNERS' || action === 'H2_GOALS_AND_CORNERS',
+    ftCorners
+  );
 
   return out;
 }
