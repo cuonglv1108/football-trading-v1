@@ -137,7 +137,7 @@ export function computeSetupStats(rows: TradingMatch[]): SetupStats[] {
     // Legacy GPT-search FT outcomes were not fixture/statistics verified; keep their
     // history visible but never include them in measured win-rate statistics.
     if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
-      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
+      !hasVerifiedHtEvidence(row) ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
     for (const p of row.h2Predictions ?? []) {
       if (!p.active || !p.grade) continue;
@@ -188,13 +188,61 @@ function setupKeyForMarket(match: TradingMatch, market: 'H2_GOALS' | 'H2_CORNERS
   return 'OTHER_CORNERS_LE5';
 }
 
+function reconstructedHtTotals(match: TradingMatch) {
+  const directHtGoals =
+    match.htScoreHome != null && match.htScoreAway != null
+      ? match.htScoreHome + match.htScoreAway
+      : null;
+  const directHtCorners =
+    match.htCornersHome != null && match.htCornersAway != null
+      ? match.htCornersHome + match.htCornersAway
+      : null;
+
+  const ftGoals =
+    match.ftScoreHome != null && match.ftScoreAway != null
+      ? match.ftScoreHome + match.ftScoreAway
+      : match.status === 'FT'
+        ? match.scoreHome + match.scoreAway
+        : null;
+  const ftCorners =
+    match.ftCornersHome != null && match.ftCornersAway != null
+      ? match.ftCornersHome + match.ftCornersAway
+      : match.status === 'FT'
+        ? match.cornersHome + match.cornersAway
+        : null;
+
+  const htGoals = directHtGoals ??
+    (ftGoals != null && match.h2ActualGoals != null && ftGoals >= match.h2ActualGoals
+      ? ftGoals - match.h2ActualGoals
+      : null);
+  const htCorners = directHtCorners ??
+    (ftCorners != null && match.h2ActualCorners != null && ftCorners >= match.h2ActualCorners
+      ? ftCorners - match.h2ActualCorners
+      : null);
+
+  return { htGoals, htCorners, ftGoals, ftCorners };
+}
+
+function hasVerifiedHtEvidence(match: TradingMatch) {
+  if (match.htVerified === true && match.htSourceType === 'API_FOOTBALL') return true;
+
+  // Recovery path for FT snapshots created after a verified HT check but with the
+  // HT flags/action lost during client merge. H2 actual values only exist when
+  // an HT baseline had been available to the FT evaluator.
+  const t = reconstructedHtTotals(match);
+  return match.ftVerified === true &&
+    match.researchPhase === 'FT' &&
+    match.h2ActualGoals != null &&
+    match.h2ActualCorners != null &&
+    t.htGoals != null &&
+    t.htCorners != null;
+}
+
 export function inferVerifiedHtAction(match: TradingMatch): TradingMatch['htAction'] | null {
   if (match.htAction === 'H2_GOALS_AND_CORNERS' || match.htAction === 'H2_CORNERS' || match.htAction === 'NO_ENTRY') {
     return match.htAction;
   }
 
-  // Older FT snapshots can retain the verified assessment even when the original
-  // HT row/action was removed from History.
   if (match.h2GoalsAssessment === 'V1_SUPPORTED' && match.h2CornersAssessment === 'V1_SUPPORTED') {
     return 'H2_GOALS_AND_CORNERS';
   }
@@ -202,31 +250,30 @@ export function inferVerifiedHtAction(match: TradingMatch): TradingMatch['htActi
     return 'H2_CORNERS';
   }
 
-  if (match.htVerified !== true || match.htSourceType !== 'API_FOOTBALL') return null;
+  if (!hasVerifiedHtEvidence(match)) return null;
+
+  const { htGoals, htCorners } = reconstructedHtTotals(match);
+  if (htGoals == null || htCorners == null) return null;
+
+  if (htCorners > 5) return 'NO_ENTRY';
+  if (htGoals === 0) return 'H2_GOALS_AND_CORNERS';
 
   const sh = match.htScoreHome;
   const sa = match.htScoreAway;
-  const ch = match.htCornersHome;
-  const ca = match.htCornersAway;
-  if ([sh, sa, ch, ca].some(v => v == null || !Number.isFinite(v))) return null;
+  if (sh == null || sa == null) {
+    return match.favouriteLosing || match.favouriteCoveringHandicap || match.ftGoalOverClear
+      ? 'H2_CORNERS'
+      : 'NO_ENTRY';
+  }
 
-  const htCorners = Number(ch) + Number(ca);
-  if (htCorners > 5) return 'NO_ENTRY';
-
-  const is00 = sh === 0 && sa === 0;
-  if (is00) return 'H2_GOALS_AND_CORNERS';
-
-  const favouriteDiff = match.favourite === 'HOME'
-    ? Number(sh) - Number(sa)
-    : Number(sa) - Number(sh);
-
+  const favouriteDiff = match.favourite === 'HOME' ? sh - sa : sa - sh;
   const favouriteLosing = match.favouriteLosing === true || favouriteDiff < 0;
   const favouriteCovering =
     match.favouriteCoveringHandicap === true ||
     (match.handicapVerified === true && Number.isFinite(match.handicap) && favouriteDiff + match.handicap > 0);
   const ftGoalOverClear =
     match.ftGoalOverClear === true ||
-    (Number.isFinite(match.prematchGoalLine) && Number(sh) + Number(sa) > Math.ceil(match.prematchGoalLine));
+    (Number.isFinite(match.prematchGoalLine) && sh + sa > Math.ceil(match.prematchGoalLine));
 
   return favouriteLosing || favouriteCovering || ftGoalOverClear ? 'H2_CORNERS' : 'NO_ENTRY';
 }
@@ -248,7 +295,7 @@ export function methodMatchStatus(match: TradingMatch): 'WIN' | 'LOSE' | 'NE' | 
 
 export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
   const out: MethodOutcome[] = [];
-  const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
+  const verifiedHt = hasVerifiedHtEvidence(match);
   const verifiedFt = match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
 
@@ -316,13 +363,11 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
     const market: 'H2_CORNERS' = 'H2_CORNERS';
     const setupKey = setupKeyForMarket(match, market);
     const benchmarkLine = match.prematchCornerLine;
-    const htCorners = match.htCornersHome != null && match.htCornersAway != null
-      ? match.htCornersHome + match.htCornersAway
-      : null;
+    const totals = reconstructedHtTotals(match);
+    const htCorners = totals.htCorners;
     const h2Corners = match.h2ActualCorners ?? null;
-    const finalCorners = htCorners != null && h2Corners != null
-      ? htCorners + h2Corners
-      : null;
+    const finalCorners = totals.ftCorners ??
+      (htCorners != null && h2Corners != null ? htCorners + h2Corners : null);
 
     const unresolved = commonState(market, benchmarkLine, finalCorners, setupKey);
     if (unresolved) {
@@ -364,7 +409,7 @@ export function computeMethodStats(rows: TradingMatch[]): MethodStats[] {
 
   for (const row of rows) {
     if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
-      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
+      !hasVerifiedHtEvidence(row) ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
 
     const outcomes = evaluateMethodOutcomes(row);
@@ -399,7 +444,7 @@ export function computeMethodOverall(rows: TradingMatch[]): MethodOverallStats {
 
   for (const row of rows) {
     if (row.researchPhase !== 'FT' || row.ftVerified !== true ||
-      row.htVerified !== true || row.htSourceType !== 'API_FOOTBALL' ||
+      !hasVerifiedHtEvidence(row) ||
       !/^API-Football fixture \d+/.test(row.ftSourceSummary ?? '')) continue;
 
     const outcomes = evaluateMethodOutcomes(row);
