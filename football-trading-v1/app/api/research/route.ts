@@ -20,6 +20,16 @@ function restoreLegacyBet365Lines(row: TradingMatch): TradingMatch {
       h2CornersAssessment: row.h2CornersAssessment ?? 'V1_SUPPORTED',
     };
   }
+
+  if (String(row.id) === '1492402') {
+    return {
+      ...row,
+      liveCornerLine: row.liveCornerLine ?? 11.5,
+      htAction: row.htAction ?? 'H2_CORNERS',
+      h2CornersAssessment: row.h2CornersAssessment ?? 'V1_SUPPORTED',
+    };
+  }
+
   return row;
 }
 
