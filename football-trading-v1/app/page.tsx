@@ -4,11 +4,12 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
 import { League, MethodOverallStats, MethodStats, TradingMatch } from '../lib/types';
-import { buildH2Predictions } from '../lib/outcomes';
+import { buildH2Predictions, methodMatchStatus } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
 const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
 type View = 'STARRED' | 'HISTORY';
+type HistoryGroup = 'WIN' | 'LOSE' | 'DRAW' | 'NE';
 
 const STAR_KEY = 'football-trading-v1-starred';
 const HISTORY_KEY = 'football-trading-v1-history';
@@ -138,6 +139,7 @@ export default function Home() {
   const [methodOverall, setMethodOverall] = useState<MethodOverallStats | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const [selectedDay, setSelectedDay] = useState('ALL');
+  const [historyGroup, setHistoryGroup] = useState<HistoryGroup | null>(null);
 
   useEffect(() => {
     const savedWatchlist = readSaved(STAR_KEY).filter(m => m.status !== 'FT');
@@ -677,9 +679,28 @@ export default function Home() {
     }
   }
 
+  const verifiedHistory = useMemo(
+    () => history.filter(m => m.researchPhase === 'FT' && m.ftVerified === true),
+    [history]
+  );
+
+  const historyCounts = useMemo(() => {
+    const counts: Record<HistoryGroup, number> = { WIN: 0, LOSE: 0, DRAW: 0, NE: 0 };
+    const rows = league === 'ALL'
+      ? verifiedHistory
+      : verifiedHistory.filter(m => m.league === league);
+
+    for (const match of rows) {
+      const status = methodMatchStatus(match);
+      if (status) counts[status] += 1;
+    }
+    return counts;
+  }, [verifiedHistory, league]);
+
   const source = view === 'HISTORY'
-    ? history
+    ? verifiedHistory.filter(m => historyGroup != null && methodMatchStatus(m) === historyGroup)
     : starred.filter(m => m.status !== 'FT' && !isWatchExpired(m, clock));
+
   const filtered = useMemo(() => {
     let rows = league === 'ALL' ? source : source.filter(m => m.league === league);
     if (view !== 'HISTORY' && selectedDay !== 'ALL') {
@@ -787,10 +808,24 @@ export default function Home() {
               )}
             </section>
           )}
-          {history.length > 0 && (
-            <div className="historyBar compactHistoryBar">
-              <span>Verified FT only · one record per match</span>
-              <button onClick={() => { setHistory([]); localStorage.removeItem(HISTORY_KEY); }}>Clear local</button>
+          <section className="historyGroupGrid" aria-label="History result groups">
+            {(['WIN', 'LOSE', 'DRAW', 'NE'] as HistoryGroup[]).map(group => (
+              <button
+                key={group}
+                className={`historyGroupBox ${group.toLowerCase()} ${historyGroup === group ? 'active' : ''}`}
+                onClick={() => setHistoryGroup(current => current === group ? null : group)}
+              >
+                <span>{group}</span>
+                <strong>{historyCounts[group]}</strong>
+                <small>{historyGroup === group ? 'Hide matches' : 'View matches'}</small>
+              </button>
+            ))}
+          </section>
+
+          {historyGroup && (
+            <div className="historyGroupHeader">
+              <span>{historyGroup} · {historyCounts[historyGroup]} match{historyCounts[historyGroup] === 1 ? '' : 'es'}</span>
+              <button onClick={() => setHistoryGroup(null)}>Close</button>
             </div>
           )}
         </>
@@ -822,12 +857,16 @@ export default function Home() {
             <strong>
               {view === 'STARRED'
                 ? (loading ? 'Scanning upcoming matches…' : 'No V1 matches in ★ yet')
-                : 'No verified FT history yet'}
+                : historyGroup
+                  ? `No ${historyGroup} matches in this filter`
+                  : 'Choose a History group'}
             </strong>
             <span>
               {view === 'STARRED'
                 ? 'Tap Scan 72h to load qualified fixtures. Saved V1 matches stay here until FT.'
-                : 'A match appears here once FT is verified.'}
+                : historyGroup
+                  ? 'Try another result group or league.'
+                  : 'Tap WIN, LOSE, DRAW or NE to view those matches.'}
             </span>
           </div>
         )}
