@@ -188,6 +188,64 @@ function setupKeyForMarket(match: TradingMatch, market: 'H2_GOALS' | 'H2_CORNERS
   return 'OTHER_CORNERS_LE5';
 }
 
+export function inferVerifiedHtAction(match: TradingMatch): TradingMatch['htAction'] | null {
+  if (match.htAction === 'H2_GOALS_AND_CORNERS' || match.htAction === 'H2_CORNERS' || match.htAction === 'NO_ENTRY') {
+    return match.htAction;
+  }
+
+  // Older FT snapshots can retain the verified assessment even when the original
+  // HT row/action was removed from History.
+  if (match.h2GoalsAssessment === 'V1_SUPPORTED' && match.h2CornersAssessment === 'V1_SUPPORTED') {
+    return 'H2_GOALS_AND_CORNERS';
+  }
+  if (match.h2CornersAssessment === 'V1_SUPPORTED') {
+    return 'H2_CORNERS';
+  }
+
+  if (match.htVerified !== true || match.htSourceType !== 'API_FOOTBALL') return null;
+
+  const sh = match.htScoreHome;
+  const sa = match.htScoreAway;
+  const ch = match.htCornersHome;
+  const ca = match.htCornersAway;
+  if ([sh, sa, ch, ca].some(v => v == null || !Number.isFinite(v))) return null;
+
+  const htCorners = Number(ch) + Number(ca);
+  if (htCorners > 5) return 'NO_ENTRY';
+
+  const is00 = sh === 0 && sa === 0;
+  if (is00) return 'H2_GOALS_AND_CORNERS';
+
+  const favouriteDiff = match.favourite === 'HOME'
+    ? Number(sh) - Number(sa)
+    : Number(sa) - Number(sh);
+
+  const favouriteLosing = match.favouriteLosing === true || favouriteDiff < 0;
+  const favouriteCovering =
+    match.favouriteCoveringHandicap === true ||
+    (match.handicapVerified === true && Number.isFinite(match.handicap) && favouriteDiff + match.handicap > 0);
+  const ftGoalOverClear =
+    match.ftGoalOverClear === true ||
+    (Number.isFinite(match.prematchGoalLine) && Number(sh) + Number(sa) > Math.ceil(match.prematchGoalLine));
+
+  return favouriteLosing || favouriteCovering || ftGoalOverClear ? 'H2_CORNERS' : 'NO_ENTRY';
+}
+
+export function methodMatchStatus(match: TradingMatch): 'WIN' | 'LOSE' | 'NE' | null {
+  const action = inferVerifiedHtAction(match);
+  if (action === 'NO_ENTRY') return 'NE';
+  if (action !== 'H2_CORNERS' && action !== 'H2_GOALS_AND_CORNERS') return null;
+
+  const outcomes = evaluateMethodOutcomes(match)
+    .filter(o => o.status === 'SUCCESS' || o.status === 'FAIL');
+
+  if (!outcomes.length) return null;
+
+  // A match marked WIN means every V1 market actually recommended at HT succeeded.
+  // If any recommended leg fails, the match-level badge is LOSE.
+  return outcomes.every(o => o.status === 'SUCCESS') ? 'WIN' : 'LOSE';
+}
+
 export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
   const out: MethodOutcome[] = [];
   const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
@@ -221,8 +279,10 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
     return null;
   };
 
+  const inferredAction = inferVerifiedHtAction(match);
+
   const goalsSupported =
-    match.h2GoalsAssessment === 'V1_SUPPORTED' || match.htAction === 'H2_GOALS_AND_CORNERS';
+    match.h2GoalsAssessment === 'V1_SUPPORTED' || inferredAction === 'H2_GOALS_AND_CORNERS';
 
   if (goalsSupported) {
     const market: 'H2_GOALS' = 'H2_GOALS';
@@ -249,8 +309,8 @@ export function evaluateMethodOutcomes(match: TradingMatch): MethodOutcome[] {
 
   const cornersSupported =
     match.h2CornersAssessment === 'V1_SUPPORTED' ||
-    match.htAction === 'H2_CORNERS' ||
-    match.htAction === 'H2_GOALS_AND_CORNERS';
+    inferredAction === 'H2_CORNERS' ||
+    inferredAction === 'H2_GOALS_AND_CORNERS';
 
   if (cornersSupported) {
     const market: 'H2_CORNERS' = 'H2_CORNERS';
