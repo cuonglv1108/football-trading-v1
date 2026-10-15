@@ -84,7 +84,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
           </div>
           <div className="matchSideActions">
-            <span className={`resultBadge ${finalStatus === 'WIN' ? 'win' : finalStatus === 'LOSE' ? 'lose' : finalStatus === 'NE' ? 'ne' : 'pending'}`}>
+            <span className={`resultBadge ${finalStatus === 'WIN' ? 'win' : finalStatus === 'LOSE' ? 'lose' : finalStatus === 'DRAW' ? 'draw' : finalStatus === 'NE' ? 'ne' : 'pending'}`}>
               {finalStatus ?? '—'}
             </span>
           </div>
@@ -114,8 +114,8 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             </div>
 
             <div className="metrics">
-              <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
-              <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
+              <div><span>Bet365 corner</span><b>{match.liveCornerLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_CORNERS')?.line ?? '—'}</b></div>
+              <div><span>Bet365 H2 goals</span><b>{match.liveGoalLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_GOALS')?.line ?? '—'}</b></div>
               <div><span>H2 corners</span><b>{match.h2ActualCorners ?? '—'}</b></div>
               <div><span>H2 goals</span><b>{match.h2ActualGoals ?? '—'}</b></div>
             </div>
@@ -125,10 +125,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                 {methodOutcomes.map((o, i) => (
                   <div key={`${o.market}-${i}`} className={`methodOutcome ${o.status.toLowerCase()}`}>
                     <span>{o.market === 'H2_CORNERS' ? 'CORNERS' : 'GOALS'}</span>
-                    <b>{o.status}</b>
+                    <b>{o.status === 'SUCCESS' ? 'WIN' : o.status === 'FAIL' ? 'LOSE' : '—'}</b>
                     <small>
-                      {o.market === 'H2_CORNERS' ? 'FT total ' : 'H2 '}
-                      {o.actual ?? '—'} vs pre {o.benchmarkLine}
+                      {o.market === 'H2_CORNERS' ? 'FT corners' : 'H2 goals'} {o.actual ?? '—'} · Bet365 line {o.benchmarkLine || '—'}
                     </small>
                   </div>
                 ))}
@@ -296,7 +295,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
                   <span>{o.market.replace(/_/g, ' ')}</span>
                   <b>{o.status}</b>
                   <small>
-                    {o.market === 'H2_CORNERS' ? 'FT corner total' : 'H2 actual'} {o.actual ?? '—'} · pre-match {o.benchmarkLine}
+                    {o.market === 'H2_CORNERS' ? 'FT corners' : 'H2 goals'} {o.actual ?? '—'} · Bet365 line {o.benchmarkLine || '—'}
                   </small>
                 </div>
               ))}
