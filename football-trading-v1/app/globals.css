@@ -1070,3 +1070,97 @@ footer {
   background: rgba(242,196,109,.09);
   border-color: rgba(242,196,109,.24);
 }
+
+
+/* grouped History */
+.historyGroupGrid {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:9px;
+  margin:0 0 14px;
+}
+.historyGroupBox {
+  min-width:0;
+  min-height:86px;
+  padding:12px 10px;
+  border:1px solid #2a2e33;
+  border-radius:16px;
+  background:#111417;
+  color:#f4f5f6;
+  display:grid;
+  grid-template-rows:auto 1fr auto;
+  gap:4px;
+  text-align:left;
+  cursor:pointer;
+}
+.historyGroupBox span {
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.08em;
+}
+.historyGroupBox strong {
+  align-self:center;
+  font-size:25px;
+  line-height:1;
+  font-weight:950;
+}
+.historyGroupBox small {
+  color:#737b84;
+  font-size:8px;
+  font-weight:800;
+}
+.historyGroupBox.win span,
+.historyGroupBox.win strong { color:#4ee28a; }
+.historyGroupBox.lose span,
+.historyGroupBox.lose strong { color:#ff6d76; }
+.historyGroupBox.draw span,
+.historyGroupBox.draw strong { color:#f2c46d; }
+.historyGroupBox.ne span,
+.historyGroupBox.ne strong { color:#f3f4f5; }
+
+.historyGroupBox.win.active {
+  border-color:rgba(78,226,138,.5);
+  background:rgba(78,226,138,.08);
+}
+.historyGroupBox.lose.active {
+  border-color:rgba(255,109,118,.5);
+  background:rgba(255,109,118,.08);
+}
+.historyGroupBox.draw.active {
+  border-color:rgba(242,196,109,.5);
+  background:rgba(242,196,109,.08);
+}
+.historyGroupBox.ne.active {
+  border-color:rgba(255,255,255,.38);
+  background:rgba(255,255,255,.07);
+}
+.historyGroupHeader {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:0 2px 12px;
+  color:#aab0b8;
+  font-size:11px;
+  font-weight:900;
+}
+.historyGroupHeader button {
+  border:0;
+  background:transparent;
+  color:#8f969f;
+  font-size:10px;
+  font-weight:900;
+  text-decoration:underline;
+  cursor:pointer;
+}
+@media (max-width:560px) {
+  .historyGroupGrid {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .historyGroupBox {
+    min-height:78px;
+  }
+  .historyGroupBox strong {
+    font-size:23px;
+  }
+}
