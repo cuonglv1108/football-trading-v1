@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { TradingMatch } from '../lib/types';
 import { deriveH2Execution } from '../lib/h2Execution';
-import { evaluateMethodOutcomes } from '../lib/outcomes';
+import { evaluateMethodOutcomes, inferVerifiedHtAction, methodMatchStatus } from '../lib/outcomes';
 
 type Props = {
   match: TradingMatch;
@@ -53,11 +53,13 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
       ? match.htCornersHome + match.htCornersAway
       : null;
     const methodOutcomes = evaluateMethodOutcomes(match);
-    const verifiedAction = match.htAction === 'H2_GOALS_AND_CORNERS'
+    const inferredAction = inferVerifiedHtAction(match);
+    const finalStatus = methodMatchStatus(match);
+    const verifiedAction = inferredAction === 'H2_GOALS_AND_CORNERS'
       ? 'GOALS + CORNERS'
-      : match.htAction === 'H2_CORNERS'
+      : inferredAction === 'H2_CORNERS'
         ? 'CORNERS'
-        : match.htAction === 'NO_ENTRY'
+        : inferredAction === 'NO_ENTRY'
           ? 'NO ENTRY'
           : '—';
 
@@ -81,7 +83,11 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
               <b className="teamScore">{match.ftScoreAway ?? match.scoreAway}</b>
             </div>
           </div>
-          <div className="matchSideActions"><span className="v1Dot">V1</span></div>
+          <div className="matchSideActions">
+            <span className={`resultBadge ${finalStatus === 'WIN' ? 'win' : finalStatus === 'LOSE' ? 'lose' : finalStatus === 'NE' ? 'ne' : 'pending'}`}>
+              {finalStatus ?? '—'}
+            </span>
+          </div>
         </div>
 
         <div className="historyCardActions">
