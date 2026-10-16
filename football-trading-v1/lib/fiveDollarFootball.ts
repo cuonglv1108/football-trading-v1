@@ -224,7 +224,7 @@ async function fetchStakeFtHandicap(fixtureId: number): Promise<{
     const line = finiteNumber(ah?.line);
     const homeOdd = finiteNumber(ah?.home);
     const awayOdd = finiteNumber(ah?.away);
-    if (line === null || line === 0 || Math.abs(line) > 5 ||
+    if (line === null || Math.abs(line) > 5 ||
         !Number.isInteger(line * 4) ||
         homeOdd === null || awayOdd === null ||
         homeOdd <= 1 || homeOdd > 20 ||
@@ -267,14 +267,13 @@ function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | nu
   // main-market band (decimal 1.75-2.05 = HK 0.75-1.05).
   if (
     ahLine !== null &&
-    ahLine !== 0 &&
     homeAhOdd !== null &&
     awayAhOdd !== null &&
     homeAhOdd > 1 && homeAhOdd <= 20 &&
     awayAhOdd > 1 && awayAhOdd <= 20 &&
     Number.isInteger(ahLine * 4) && Math.abs(ahLine) <= 5
   ) {
-    favourite = ahLine < 0 ? 'HOME' : 'AWAY';
+    favourite = ahLine === 0 ? match.favourite : ahLine < 0 ? 'HOME' : 'AWAY';
     handicap = -Math.abs(ahLine);
     handicapVerified = true;
   }
@@ -290,6 +289,9 @@ function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | nu
     favourite,
     handicap,
     handicapVerified,
+    prematchHandicapLine: handicapVerified ? ahLine : match.prematchHandicapLine ?? null,
+    handicapLineVerified: handicapVerified || match.handicapLineVerified === true,
+    handicapLineSource: handicapVerified ? '5DollarFootballAPI · Bet365 FT Asian Handicap priced' : match.handicapLineSource,
     handicapHomeOdd: homeAhOdd,
     handicapAwayOdd: awayAhOdd,
     sourceSummary:
@@ -462,12 +464,15 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
         enriched.kickoff && new Date(enriched.kickoff).getTime() > Date.now()) {
       const stake = await fetchStakeFtHandicap(fixtureId);
       if (stake) {
-        const favourite = stake.line < 0 ? 'HOME' : 'AWAY';
+        const favourite = stake.line === 0 ? enriched.favourite : stake.line < 0 ? 'HOME' : 'AWAY';
         const supplemented: TradingMatch = {
           ...enriched,
           favourite,
           handicap: -Math.abs(stake.line),
           handicapVerified: true,
+          prematchHandicapLine: stake.line,
+          handicapLineVerified: true,
+          handicapLineSource: '5DollarFootballAPI · Stake two-way FT Asian Handicap',
           handicapHomeOdd: stake.homeOdd,
           handicapAwayOdd: stake.awayOdd,
           sourceSummary: `${enriched.sourceSummary} · FT AH: Stake (supplement; not Bet365) · snapshot ${stake.capturedAt}`,
