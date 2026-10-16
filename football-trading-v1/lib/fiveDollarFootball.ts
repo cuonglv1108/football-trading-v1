@@ -52,9 +52,10 @@ type FiveDollarFixture = {
       inplay?: { home?: number; draw?: number; away?: number } | null;
     } | null;
     asian_handicap?: {
-      opening?: number | null;
-      closing?: number | null;
-      inplay?: number | null;
+      opening?: number | string | null;
+      closing?: number | string | null;
+      current?: number | string | null;
+      inplay?: number | string | null;
     } | null;
     goal_line?: {
       opening?: number | null;
@@ -303,7 +304,7 @@ function fixtureToPreliminaryMatch(league: League, fixture: FiveDollarFixture): 
   const cornerLine = prematchLine(fixture.odds?.corner_line);
   if (goalLine === null || cornerLine === null) return null;
 
-  const asian = prematchLine(fixture.odds?.asian_handicap);
+  const asian = shortFormAhLine(fixture.odds?.asian_handicap);
   const prelim = preliminaryFavourite(fixture, asian);
 
   const match: TradingMatch = {
