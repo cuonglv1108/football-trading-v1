@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test:odds": "node --experimental-strip-types --test tests/watchlistOdds.test.mjs",
     "start": "next start"
   },
   "dependencies": {
