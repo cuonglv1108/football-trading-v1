@@ -190,9 +190,10 @@ function parseHandicap(
       const inBand =
         home.odd >= 1.75 && home.odd <= 2.05 &&
         away.odd >= 1.75 && away.odd <= 2.05;
-      if (!inBand) continue;
-
       const bothMain = home.main && away.main;
+      // Explicit main-market markers are stronger than an arbitrary odds band.
+      // Otherwise the odds band remains a conservative heuristic.
+      if (!bothMain && !inBand) continue;
       const score =
         (bothMain ? -5 : 0) +
         Math.abs(home.odd - away.odd) +

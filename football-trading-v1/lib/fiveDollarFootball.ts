@@ -151,6 +151,7 @@ async function apiGet<T>(path: string): Promise<FiveDollarResponse<T>> {
 }
 
 function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -194,6 +195,35 @@ async function fetchBet365FullOdds(fixtureId: number): Promise<Bet365FullOdds | 
     /bet\s*365/i.test(String(row.name ?? ''))
   );
   return bet365?.odds ?? null;
+}
+
+// Stake is a supplemental source only. Never replace verified Bet365 markets.
+async function fetchStakeFtHandicap(fixtureId: number): Promise<{
+  line: number; homeOdd: number; awayOdd: number; capturedAt: string;
+} | null> {
+  // An unsupported bookmaker or a missing market must not break the scan.
+  try {
+    const response = await apiGet<FullOddsResponse>(`/fixtures/${fixtureId}/odds?bookmakers=stake`);
+    if (Number(response.data?.fixture_id) !== fixtureId) return null;
+    const stake = (response.data?.bookmakers ?? []).find(row =>
+      /^stake(?:\\.com)?$/i.test(String(row.slug ?? '').trim()) ||
+      /^stake(?:\\.com)?$/i.test(String(row.name ?? '').trim())
+    );
+    if (!stake) return null;
+    // Only a prematch closing/opening Asian handicap (never in-play).
+    const ah = quote(stake.odds?.asian_handicap);
+    const line = finiteNumber(ah?.line);
+    const homeOdd = finiteNumber(ah?.home);
+    const awayOdd = finiteNumber(ah?.away);
+    if (line === null || line === 0 || Math.abs(line) > 5 ||
+        !Number.isInteger(line * 4) ||
+        homeOdd === null || awayOdd === null ||
+        homeOdd < 1.75 || homeOdd > 2.05 ||
+        awayOdd < 1.75 || awayOdd > 2.05) return null;
+    return { line, homeOdd, awayOdd, capturedAt: new Date().toISOString() };
+  } catch {
+    return null;
+  }
 }
 
 function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | null): TradingMatch | null {
@@ -362,7 +392,26 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
     if (!row.match || row.match.state !== 'QUALIFIED') continue;
     const fixtureId = Number(row.fixture.id);
     const fullOdds = await fetchBet365FullOdds(fixtureId);
-    const enriched = enrichWithFullBet365Odds(row.match, fullOdds);
+    let enriched = enrichWithFullBet365Odds(row.match, fullOdds);
+    // Ask Stake only when Bet365 supplies both qualifying markets but FT AH is missing.
+    // Do not silently mix prices from distinct bookmakers for goal/corner qualification.
+    if (enriched && !enriched.handicapVerified && enriched.status === 'PRE' &&
+        enriched.kickoff && new Date(enriched.kickoff).getTime() > Date.now()) {
+      const stake = await fetchStakeFtHandicap(fixtureId);
+      if (stake) {
+        const favourite = stake.line < 0 ? 'HOME' : 'AWAY';
+        const supplemented: TradingMatch = {
+          ...enriched,
+          favourite,
+          handicap: -Math.abs(stake.line),
+          handicapVerified: true,
+          handicapHomeOdd: stake.homeOdd,
+          handicapAwayOdd: stake.awayOdd,
+          sourceSummary: `${enriched.sourceSummary} · FT AH: Stake (supplement; not Bet365) · snapshot ${stake.capturedAt}`,
+        };
+        enriched = { ...supplemented, ...evaluateV1(supplemented) };
+      }
+    }
     if (!enriched) {
       fullOddsMissing.add(String(row.fixture.id));
       continue;
