@@ -77,10 +77,31 @@ function mergeMarketCoverage(primary: TradingMatch[], secondary: TradingMatch[])
   return matches;
 }
 
+// Provider scan files survive deployments. Older versions reported COMPLETE even
+// when lines existed but FT two-way prices or Asian handicap did not.
+function auditCachedPayload(payload: Payload): Payload {
+  const rows = (Array.isArray(payload.matches) ? payload.matches : []) as TradingMatch[];
+  const price = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 1;
+  const priced = rows.filter(m =>
+    price(m.prematchGoalOverOdd) && price(m.prematchGoalUnderOdd) &&
+    price(m.prematchCornerOverOdd) && price(m.prematchCornerUnderOdd)
+  ).length;
+  const verifiedAh = rows.filter(m => m.handicapVerified === true &&
+    !/SAFEv[0-8]\b/.test(m.sourceSummary ?? '')).length;
+  const complete = rows.length > 0 && priced === rows.length && verifiedAh === rows.length;
+  return {
+    ...payload,
+    scanStatus: payload.scanStatus === 'COMPLETE' && !complete ? 'PARTIAL' : payload.scanStatus,
+    handicapVerifiedCount: verifiedAh,
+    handicapMissingCount: rows.length - verifiedAh,
+    marketCoverage: `Qualified two-way FT goals+corners ${priced}/${rows.length}; FT AH ${verifiedAh}/${rows.length} verified. Entire fixture coverage cannot be proven from this cache.`,
+  };
+}
 async function readCache(): Promise<{ payload: Payload; expiresAt: number } | null> {
   try {
     const raw = JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'));
-    return raw?.payload && Number.isFinite(Number(raw?.expiresAt)) ? raw : null;
+    return raw?.payload && Number.isFinite(Number(raw?.expiresAt))
+      ? { ...raw, payload: auditCachedPayload(raw.payload as Payload) } : null;
   } catch {
     return null;
   }
