@@ -10,6 +10,19 @@ export const runtime = 'nodejs';
 // HT->FT merge bug. Restore only the exact lines that were already verified
 // for that fixture so the final record can be graded correctly.
 function restoreLegacyBet365Lines(row: TradingMatch): TradingMatch {
+  // User-confirmed Bet365 HT live total-corners line for RB Bragantino vs Cruzeiro.
+  if (String(row.id) === '1492402' && row.htAction === 'H2_CORNERS') {
+    return {
+      ...row,
+      liveCornerLine: row.liveCornerLine ?? 11.5,
+      h2Predictions: (row.h2Predictions ?? []).map(p =>
+        p.market === 'H2_CORNERS' && p.line == null
+          ? { ...p, line: 11.5, active: true }
+          : p
+      ),
+    };
+  }
+
   if (String(row.id) === '1490537') {
     return {
       ...row,
