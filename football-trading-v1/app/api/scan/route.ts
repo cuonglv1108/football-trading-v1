@@ -4,6 +4,7 @@ import path from 'path';
 import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
 import { getApiFootballScan } from '../../../lib/apiFootball';
 import { evaluateV1 } from '../../../lib/rules';
+import { supplementFtAhLine } from '../../../lib/ftAsianRecovery';
 import type { TradingMatch } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,7 @@ type Payload = {
   marketCoverage?: string;
   handicapVerifiedCount?: number;
   handicapMissingCount?: number;
+  handicapLineOnlyCount?: number;
   webCallsThisScan: number;
   estimatedCostUsd: number;
   updatedAt: string;
@@ -88,13 +90,15 @@ function auditCachedPayload(payload: Payload): Payload {
   ).length;
   const verifiedAh = rows.filter(m => m.handicapVerified === true &&
     !/SAFEv[0-8]\b/.test(m.sourceSummary ?? '')).length;
+  const lineOnly = rows.filter(m => m.handicapVerified !== true && m.handicapLineVerified === true).length;
   const complete = rows.length > 0 && priced === rows.length && verifiedAh === rows.length;
   return {
     ...payload,
     scanStatus: payload.scanStatus === 'COMPLETE' && !complete ? 'PARTIAL' : payload.scanStatus,
     handicapVerifiedCount: verifiedAh,
-    handicapMissingCount: rows.length - verifiedAh,
-    marketCoverage: `Qualified two-way FT goals+corners ${priced}/${rows.length}; FT AH ${verifiedAh}/${rows.length} verified. Entire fixture coverage cannot be proven from this cache.`,
+    handicapMissingCount: rows.length - verifiedAh - lineOnly,
+    handicapLineOnlyCount: lineOnly,
+    marketCoverage: `Qualified two-way FT goals+corners ${priced}/${rows.length}; FT AH priced ${verifiedAh}/${rows.length}; line-only ${lineOnly}. Entire fixture coverage cannot be proven from this cache.`,
   };
 }
 async function readCache(): Promise<{ payload: Payload; expiresAt: number } | null> {
@@ -173,10 +177,14 @@ export async function GET(request: Request) {
     }
     const first = five.status === 'fulfilled' ? five.value : null;
     const second = football.status === 'fulfilled' ? football.value : null;
-    const combined = mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []);
+    const combined = supplementFtAhLine(
+      mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []),
+      first?.handicapLines ?? []
+    );
     const qualified = combined.filter(m => m.state === 'QUALIFIED');
     const handicapVerifiedCount = qualified.filter(m => m.handicapVerified === true).length;
-    const handicapMissingCount = qualified.length - handicapVerifiedCount;
+    const handicapLineOnlyCount = qualified.filter(m => m.handicapVerified !== true && m.handicapLineVerified === true).length;
+    const handicapMissingCount = qualified.length - handicapVerifiedCount - handicapLineOnlyCount;
     const dataSource = [first && '5DollarFootballAPI', second && 'API-Football'].filter(Boolean).join(' + ');
     const providerNote = [
       first ? '5Dollar OK' : `5Dollar unavailable: ${String(five.status === 'rejected' ? five.reason : '')}`,
@@ -193,19 +201,20 @@ export async function GET(request: Request) {
       dataSource,
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
-      scanStatus: missingMarketCount > 0 || handicapMissingCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
+      scanStatus: missingMarketCount > 0 || handicapMissingCount > 0 || handicapLineOnlyCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
       fixturesFound,
       fixturesVerified,
       qualifiedMatches: qualified.length,
       missingMarketCount,
       handicapVerifiedCount,
       handicapMissingCount,
+      handicapLineOnlyCount,
       marketCoverage: `Provider scans: 5Dollar ${first?.fixturesWithCompleteMarkets ?? 'unavailable'}/${first?.fixturesFound ?? 'unavailable'}; API-Football ${second?.fixturesWithCompleteMarkets ?? 'unavailable'}/${second?.fixturesFound ?? 'unavailable'}. Cross-provider counts are not unique.`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: `${providerNote}; FT AH verified ${handicapVerifiedCount}/${qualified.length}; missing ${handicapMissingCount}.`,
+      message: `${providerNote}; FT AH priced ${handicapVerifiedCount}/${qualified.length}, line-only ${handicapLineOnlyCount}, missing ${handicapMissingCount}.`,
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };
