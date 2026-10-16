@@ -7,8 +7,8 @@ import { getApiFootballScan } from '../../../lib/apiFootball';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-5d-v1.json';
-const CACHE_MS = Number(process.env.V1_PROVIDER_SCAN_CACHE_MS || 2 * 60 * 60 * 1000);
+const CACHE_FILE = process.env.V1_PROVIDER_SCAN_FILE || '/data/v1-provider-scan-24h-v2.json';
+const CACHE_MS = Number(process.env.V1_PROVIDER_SCAN_CACHE_MS || 30 * 60 * 1000);
 
 type Payload = {
   providerStatus: string;
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
       estimatedCostUsd: 0,
       updatedAt: '',
       cacheStatus: 'HIT',
-      message: 'No provider scan cached yet. Tap Scan 72h when you want new data.',
+      message: 'No provider scan cached yet. Tap Scan 24h when you want new data.',
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 
@@ -127,15 +127,15 @@ export async function GET(request: Request) {
       fixturesVerified: scanResult.fixturesWithCompleteMarkets,
       qualifiedMatches: qualified.length,
       missingMarketCount: scanResult.missingMarketCount,
-      marketCoverage: `${scanResult.fixturesWithCompleteMarkets}/${scanResult.fixturesFound} fixtures have complete goal+corner markets`,
+      marketCoverage: `${scanResult.fixturesWithCompleteMarkets}/${scanResult.fixturesFound} fixtures have complete Bet365 goal+corner data`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
       message: providerNote || (
         scanResult.missingMarketCount > 0
-          ? `5Dollar scan completed; ${scanResult.missingMarketCount} fixture(s) lack a complete Bet365 goal+corner market.`
-          : '5Dollar Bet365 fixture/odds scan completed with no GPT web search.'
+          ? `5Dollar 24h scan completed; ${scanResult.missingMarketCount} fixture(s) lack complete Bet365 line/price data.`
+          : '5Dollar Bet365 24h line/price scan completed with no GPT web search.'
       ),
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
