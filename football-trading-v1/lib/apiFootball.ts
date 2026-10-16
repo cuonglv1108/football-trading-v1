@@ -314,7 +314,7 @@ async function resolveBet365BookmakerId() {
   return id;
 }
 
-async function fetchFixtureOdds(fixtureId: number) {
+async function fetchFixtureOdds(fixtureId: number, ahBudget: { remaining: number }) {
   const bookmakerId = await resolveBet365BookmakerId();
   const cacheKey = `odds-v10-fixture-${fixtureId}`;
   const cached = readCache<any>(cacheKey);
@@ -342,6 +342,12 @@ async function fetchFixtureOdds(fixtureId: number) {
   // searching for missing AH; do not exhaust API quota for this enhancement.
   const pageCap = bet365Parsed ? 2 : 4;
   do {
+    // Extra AH-only searches have a shared per-scan limit; normal fallback
+    // when goals/corners are absent retains its existing provider behaviour.
+    if (bet365Parsed) {
+      if (ahBudget.remaining <= 0) break;
+      ahBudget.remaining--;
+    }
     let data: ApiResponse<any>;
     try {
       data = await apiGet<any>(`/odds?fixture=${fixtureId}&page=${page}`);
@@ -371,7 +377,7 @@ async function fetchFixtureOdds(fixtureId: number) {
   const ahRank = (name: string) => {
     const n = name.toLowerCase();
     if (/^bet365$/.test(n)) return 0;
-    if (/^stake(?:\\.com)?$/.test(n)) return 1;
+    if (n === 'stake' || n === 'stake.com') return 1;
     return fallbackBookmakerRank(name) + 2;
   };
   handicapCandidates.sort((a, b) =>
@@ -510,6 +516,9 @@ export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
   const now = Date.now();
   const horizonMs = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24))) * 60 * 60 * 1000;
   const horizon = now + horizonMs;
+  const ahBudget = {
+    remaining: Math.min(12, Math.max(0, Number(process.env.API_FOOTBALL_EXTRA_AH_CALLS_PER_SCAN ?? 12))),
+  };
 
   const leagueResults = await Promise.all(
     (Object.entries(LEAGUES) as Array<[League, number]>).map(async ([league, leagueId]) => {
@@ -538,7 +547,7 @@ export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
             };
           }
 
-          const odds = await fetchFixtureOdds(fixtureId);
+          const odds = await fetchFixtureOdds(fixtureId, ahBudget);
           if (!odds) {
             return {
               match: null,
