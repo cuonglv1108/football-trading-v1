@@ -12,7 +12,9 @@ function hkOdd(value: number | null | undefined) {
 }
 
 function totalPrice(line: number | null | undefined, over: number | null | undefined, under: number | null | undefined) {
-  if (line == null || !Number.isFinite(line)) return '—';
+  if (line == null || !Number.isFinite(line)) return 'LINE MISSING';
+  if (over == null || under == null || !Number.isFinite(over) || !Number.isFinite(under))
+    return `${line} · TWO-WAY PRICES MISSING`;
   return `${line} · O ${hkOdd(over)} / U ${hkOdd(under)}`;
 }
 
@@ -36,8 +38,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
     ? (match.favourite === 'HOME' ? match.handicap : -match.handicap)
     : null;
   const handicapText = homeHandicap == null
-    ? '—'
+    ? 'UNVERIFIED · FT AH MISSING'
     : `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} @ ${hkOdd(match.handicapHomeOdd)} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap} @ ${hkOdd(match.handicapAwayOdd)}`;
+  const cleanSource = (match.sourceSummary ?? '').replace(/\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan required/gi, '').trim();
+  const legacySource = /SAFEv[0-8]\b/.test(cleanSource);
   const reliableFt = match.researchPhase === 'FT' && match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
   const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
@@ -273,10 +277,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div><span>2-way handicap</span><b>{handicapText}</b></div>
           </div>
 
-          {match.sourceSummary && (
+          {cleanSource && (
             <div className="sourceBox">
               <span>Pre-match odds source (not HT)</span>
-              <b>{match.sourceSummary}</b>
+              <b>{cleanSource}{legacySource ? ' · SAVED LEGACY SNAPSHOT (not reverified)' : ''}</b>
               {(match.sourceUrls ?? []).slice(0, 2).map((url, i) => (
                 <a key={url + i} href={url} target="_blank" rel="noreferrer">Open source {i + 1}</a>
               ))}
