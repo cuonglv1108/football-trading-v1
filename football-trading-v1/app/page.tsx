@@ -53,7 +53,9 @@ function readSaved(key: string): TradingMatch[] {
   try {
     const rows = JSON.parse(localStorage.getItem(key) || '[]') as TradingMatch[];
     return Array.isArray(rows)
-      ? mergeWatchlistOdds(rows.filter(isTrustedLegacyFt).map(sanitizeOddsSnapshot), [])
+      ? key === STAR_KEY
+          ? mergeWatchlistOdds(rows.filter(isTrustedLegacyFt).map(sanitizeOddsSnapshot), [])
+          : rows.filter(isTrustedLegacyFt).map(sanitizeOddsSnapshot)
       : [];
   } catch {
     return [];
@@ -341,8 +343,9 @@ export default function Home() {
   }
 
   function saveStarred(next: TradingMatch[]) {
-    setStarred(next);
-    localStorage.setItem(STAR_KEY, JSON.stringify(next));
+    const clean = mergeWatchlistOdds(next, []);
+    setStarred(clean);
+    localStorage.setItem(STAR_KEY, JSON.stringify(clean));
   }
 
   function saveHistory(next: TradingMatch[]) {
@@ -404,8 +407,12 @@ export default function Home() {
             : data.fixturesFound != null
               ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} complete markets`
               : '';
-          const partial = data.scanStatus === 'PARTIAL' ? ' · PARTIAL' : ' · COMPLETE';
-          setNotice(`New provider scan${partial}${coverage} · ${incoming.length} qualified`);
+          const status = data.scanStatus === 'COMPLETE' ? 'COMPLETE' : 'PARTIAL';
+          const ah = data.handicapVerifiedCount == null ? '' : ` · FT AH ${data.handicapVerifiedCount}/${incoming.length} verified`;
+          const label = data.cacheStatus === 'STALE' || data.providerStatus !== 'CONNECTED'
+            ? 'Saved snapshot (not a fresh scan)'
+            : 'Provider scan';
+          setNotice(`${label} · ${status}${coverage}${ah} · ${incoming.length} qualified`);
         }
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
