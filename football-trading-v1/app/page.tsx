@@ -7,7 +7,7 @@ import { League, MethodOverallStats, MethodStats, TradingMatch } from '../lib/ty
 import { buildH2Predictions, methodMatchStatus } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
-const leagues: Array<'ALL' | League> = ['ALL', 'MLS', 'Allsvenskan', 'Liga MX', 'Brazil Serie A'];
+const leagues: Array<'ALL' | League> = ['ALL', 'Eredivisie', 'Allsvenskan', 'Brazil Serie A', 'Liga MX', 'Swiss Super League', 'Danish Superliga', 'Eliteserien', 'MLS'];
 type View = 'STARRED' | 'HISTORY';
 type HistoryGroup = 'WIN' | 'LOSE' | 'DRAW' | 'NE';
 
@@ -26,7 +26,7 @@ function localDayKey(value: string | number | Date) {
 function dayRail(now: number) {
   const base = new Date(now);
   base.setHours(12, 0, 0, 0);
-  return Array.from({ length: 4 }, (_, i) => {
+  return Array.from({ length: 2 }, (_, i) => {
     const d = new Date(base);
     d.setDate(base.getDate() + i);
     return {
@@ -502,7 +502,11 @@ export default function Home() {
         cornersHome: data.cornersHome ?? match.cornersHome,
         cornersAway: data.cornersAway ?? match.cornersAway,
         liveGoalLine: data.liveGoalLine ?? null,
+        liveGoalOverOdd: data.liveGoalOverOdd ?? null,
+        liveGoalUnderOdd: data.liveGoalUnderOdd ?? null,
         liveCornerLine: data.liveCornerLine ?? null,
+        liveCornerOverOdd: data.liveCornerOverOdd ?? null,
+        liveCornerUnderOdd: data.liveCornerUnderOdd ?? null,
         favouriteCoveringHandicap: data.favouriteCoveringHandicap ?? false,
         favouriteLosing: data.favouriteLosing ?? false,
         ftGoalOverClear: data.ftGoalOverClear ?? false,
@@ -738,7 +742,7 @@ export default function Home() {
             {batchLoading === 'FT' ? 'FT…' : 'FT'}
           </button>
           <button className="refreshAction" onClick={scanUpcoming} disabled={loading}>
-            {loading ? 'Scanning…' : 'Scan 72h'}
+            {loading ? 'Scanning…' : 'Scan 24h'}
           </button>
         </div>
       </header>
@@ -759,7 +763,7 @@ export default function Home() {
       {view !== 'HISTORY' && (
         <nav className="dateRail">
           <button className={selectedDay === 'ALL' ? 'active' : ''} onClick={() => setSelectedDay('ALL')}>
-            <strong>ALL</strong><span>72H</span>
+            <strong>ALL</strong><span>24H</span>
           </button>
           {dates.map(item => (
             <button key={item.key} className={selectedDay === item.key ? 'active' : ''} onClick={() => setSelectedDay(item.key)}>
@@ -863,7 +867,7 @@ export default function Home() {
             </strong>
             <span>
               {view === 'STARRED'
-                ? 'Tap Scan 72h to load qualified fixtures. Saved V1 matches stay here until FT.'
+                ? 'Tap Scan 24h to load qualified fixtures. Saved V1 matches stay here until FT.'
                 : historyGroup
                   ? 'Try another result group or league.'
                   : 'Tap WIN, LOSE, DRAW or NE to view those matches.'}
