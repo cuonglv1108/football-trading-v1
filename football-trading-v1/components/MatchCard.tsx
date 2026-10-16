@@ -34,12 +34,16 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const totalCorners = match.cornersHome + match.cornersAway;
   const [expanded, setExpanded] = useState(false);
   const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
+  const pricedHandicap = match.handicapVerified === true &&
+    match.handicapHomeOdd != null && match.handicapAwayOdd != null;
   const homeHandicap = match.handicapVerified === true
     ? (match.favourite === 'HOME' ? match.handicap : -match.handicap)
-    : null;
-  const handicapText = homeHandicap == null
-    ? 'UNVERIFIED · FT AH MISSING'
-    : `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} @ ${hkOdd(match.handicapHomeOdd)} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap} @ ${hkOdd(match.handicapAwayOdd)}`;
+    : match.handicapLineVerified === true ? match.prematchHandicapLine ?? null : null;
+  const handicapText = homeHandicap == null ? 'FT AH MISSING' :
+    `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap}` +
+    (pricedHandicap ? ` · H @ ${hkOdd(match.handicapHomeOdd)} · A @ ${hkOdd(match.handicapAwayOdd)}` :
+      ' · LINE ONLY · HOME/AWAY PRICES MISSING');
+
   const cleanSource = (match.sourceSummary ?? '').replace(/\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan required/gi, '').trim();
   const legacySource = /SAFEv[0-8]\b/.test(cleanSource);
   const reliableFt = match.researchPhase === 'FT' && match.ftVerified === true &&
