@@ -225,17 +225,25 @@ function parseBookmakerOdds(bookmaker: any) {
   const bets = bookmaker.bets;
   // V1 uses the Asian FT goal line (quarter lines such as 2.75 / 3.25), not
   // the simple Goals Over/Under market that only exposes .5 lines.
-  const asianGoalBet = bets.find((b: any) => /^goal line$/i.test(String(b?.name ?? '').trim()));
-  const goalsBet = asianGoalBet ?? bets.find((b: any) => /goals over\/under/i.test(b?.name ?? '') && !/half|home|away/i.test(b?.name ?? ''));
-  const cornersBet = bets.find((b: any) => /corner/i.test(b?.name ?? '') && /over|under|total/i.test(b?.name ?? '') && !/home|away|half|team/i.test(b?.name ?? ''));
-  const handicapBet = bets.find((b: any) => /asian handicap/i.test(b?.name ?? '') && !/half/i.test(b?.name ?? ''));
+  const goalMarkets = bets.filter((b: any) =>
+    (/^goal line$/i.test(String(b?.name ?? '').trim()) ||
+     /goals over\/under/i.test(String(b?.name ?? ''))) &&
+    !/half|home|away|team|1st|2nd/i.test(String(b?.name ?? '')));
+  const cornerMarkets = bets.filter((b: any) =>
+    /corner/i.test(String(b?.name ?? '')) &&
+    /over|under|total/i.test(String(b?.name ?? '')) &&
+    !/home|away|half|team|1st|2nd/i.test(String(b?.name ?? '')));
+  const handicapMarkets = bets.filter((b: any) =>
+    /asian handicap/i.test(String(b?.name ?? '')) &&
+    !/half|1st|2nd|alternative/i.test(String(b?.name ?? '')));
 
-  const goal = balancedQuote(goalsBet?.values);
-  const corner = balancedQuote(cornersBet?.values);
+  // Markets can be listed with no outcomes: try the next matching FT market.
+  const goal = goalMarkets.map((b: any) => balancedQuote(b?.values)).find(Boolean) ?? null;
+  const corner = cornerMarkets.map((b: any) => balancedQuote(b?.values)).find(Boolean) ?? null;
   if (!goal || !corner) return null;
 
   const marketFavourite = moneylineFavourite(bets);
-  const handicap = parseHandicap(handicapBet?.values, marketFavourite);
+  const handicap = handicapMarkets.map((b: any) => parseHandicap(b?.values, marketFavourite)).find(Boolean) ?? null;
   const favourite: 'HOME' | 'AWAY' = handicap?.favourite ?? 'HOME';
 
   return {
