@@ -167,7 +167,7 @@ function quote<T extends { line?: number | null }>(
   market: { opening?: T | null; closing?: T | null; inplay?: T | null } | null | undefined
 ): T | null {
   if (!market) return null;
-  return market.closing ?? market.opening ?? null;
+  // Closing snapshots can be partial; prefer a complete two-sided quote.\n  const values = [market.closing, market.opening];\n  return values.find(v => v && finiteNumber(v.line) !== null &&\n    ('over' in v ? finiteNumber(v.over) !== null && finiteNumber(v.under) !== null :\n     'home' in v ? finiteNumber(v.home) !== null && finiteNumber(v.away) !== null : false)) ?? null;
 }
 
 function preliminaryFavourite(fixture: FiveDollarFixture, asian: number | null): {
@@ -206,8 +206,8 @@ async function fetchStakeFtHandicap(fixtureId: number): Promise<{
     const response = await apiGet<FullOddsResponse>(`/fixtures/${fixtureId}/odds?bookmakers=stake`);
     if (Number(response.data?.fixture_id) !== fixtureId) return null;
     const stake = (response.data?.bookmakers ?? []).find(row =>
-      /^stake(?:\\.com)?$/i.test(String(row.slug ?? '').trim()) ||
-      /^stake(?:\\.com)?$/i.test(String(row.name ?? '').trim())
+      /^stake(?:\.com)?$/i.test(String(row.slug ?? '').trim()) ||
+      /^stake(?:\.com)?$/i.test(String(row.name ?? '').trim())
     );
     if (!stake) return null;
     // Only a prematch closing/opening Asian handicap (never in-play).
@@ -218,8 +218,8 @@ async function fetchStakeFtHandicap(fixtureId: number): Promise<{
     if (line === null || line === 0 || Math.abs(line) > 5 ||
         !Number.isInteger(line * 4) ||
         homeOdd === null || awayOdd === null ||
-        homeOdd < 1.75 || homeOdd > 2.05 ||
-        awayOdd < 1.75 || awayOdd > 2.05) return null;
+        homeOdd <= 1 || homeOdd > 20 ||
+        awayOdd <= 1 || awayOdd > 20) return null;
     return { line, homeOdd, awayOdd, capturedAt: new Date().toISOString() };
   } catch {
     return null;
@@ -261,8 +261,9 @@ function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | nu
     ahLine !== 0 &&
     homeAhOdd !== null &&
     awayAhOdd !== null &&
-    homeAhOdd >= 1.75 && homeAhOdd <= 2.05 &&
-    awayAhOdd >= 1.75 && awayAhOdd <= 2.05
+    homeAhOdd > 1 && homeAhOdd <= 20 &&
+    awayAhOdd > 1 && awayAhOdd <= 20 &&
+    Number.isInteger(ahLine * 4) && Math.abs(ahLine) <= 5
   ) {
     favourite = ahLine < 0 ? 'HOME' : 'AWAY';
     handicap = -Math.abs(ahLine);
