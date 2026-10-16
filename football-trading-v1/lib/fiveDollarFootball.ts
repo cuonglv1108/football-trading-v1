@@ -403,17 +403,8 @@ export type FiveDollarScanResult = {
   handicapLines: FiveDollarAhLine[];
 };
 
-export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
-  const now = Math.floor(Date.now() / 1000);
-  const horizonHours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
-  const end = now + horizonHours * 60 * 60;
-
-  const fixtures = await fetchTargetWindow(now, end);
-  const unique = Array.from(
-    new Map(fixtures.map(fixture => [String(fixture.id ?? ''), fixture])).values()
-  ).filter(fixture => fixture.id != null);
-
-  const handicapLines: FiveDollarAhLine[] = unique.flatMap(fixture => {
+function extractShortAhLines(fixtures: FiveDollarFixture[]): FiveDollarAhLine[] {
+  return fixtures.flatMap(fixture => {
     const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
     const homeLine = shortFormAhLine(fixture.odds?.asian_handicap);
     if (!league || homeLine === null || !fixture.teams?.home?.name || !fixture.teams?.away?.name) return [];
@@ -426,6 +417,27 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
       source: '5DollarFootballAPI fixture summary (FT Asian Handicap line only; prices unavailable)',
     }];
   });
+
+}
+
+export async function getFiveDollarAhLinesOnly(): Promise<FiveDollarAhLine[]> {
+  const start = Math.floor(Date.now() / 1000);
+  const hours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
+  const fixtures = await fetchTargetWindow(start, start + hours * 3600);
+  return extractShortAhLines(fixtures);
+}
+
+export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
+  const now = Math.floor(Date.now() / 1000);
+  const horizonHours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
+  const end = now + horizonHours * 60 * 60;
+
+  const fixtures = await fetchTargetWindow(now, end);
+  const unique = Array.from(
+    new Map(fixtures.map(fixture => [String(fixture.id ?? ''), fixture])).values()
+  ).filter(fixture => fixture.id != null);
+
+  const handicapLines = extractShortAhLines(unique);
 
   const prelimRows = unique.map(fixture => {
     const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
