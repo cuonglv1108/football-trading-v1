@@ -369,12 +369,34 @@ export type FiveDollarScanAudit = {
   marketStatus: 'VERIFIED' | 'MISSING_GOAL_OR_CORNER';
 };
 
+export type FiveDollarAhLine = {
+  league: League;
+  home: string;
+  away: string;
+  kickoff: string | null;
+  homeLine: number;
+  source: string;
+};
+
+// The provider's fixture summary may expose the Bet365 Asian handicap LINE
+// without two-sided prices. Keep this distinctly from a verified priced quote.
+export function shortFormAhLine(market: FiveDollarFixture['odds'] extends infer O
+  ? NonNullable<O> extends { asian_handicap?: infer A } ? A : never : never): number | null {
+  if (!market) return null;
+  for (const raw of [market.closing, (market as { current?: unknown }).current, market.opening]) {
+    const line = finiteNumber(raw);
+    if (line !== null && Math.abs(line) <= 5 && Number.isInteger(line * 4)) return line;
+  }
+  return null;
+}
+
 export type FiveDollarScanResult = {
   matches: TradingMatch[];
   fixturesFound: number;
   fixturesWithCompleteMarkets: number;
   missingMarketCount: number;
   audit: FiveDollarScanAudit[];
+  handicapLines: FiveDollarAhLine[];
 };
 
 export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
@@ -386,6 +408,20 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   const unique = Array.from(
     new Map(fixtures.map(fixture => [String(fixture.id ?? ''), fixture])).values()
   ).filter(fixture => fixture.id != null);
+
+  const handicapLines: FiveDollarAhLine[] = unique.flatMap(fixture => {
+    const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
+    const homeLine = shortFormAhLine(fixture.odds?.asian_handicap);
+    if (!league || homeLine === null || !fixture.teams?.home?.name || !fixture.teams?.away?.name) return [];
+    return [{
+      league,
+      home: fixture.teams.home.name,
+      away: fixture.teams.away.name,
+      kickoff: fixture.kickoff_utc ?? null,
+      homeLine,
+      source: '5DollarFootballAPI fixture summary (FT Asian Handicap line only; prices unavailable)',
+    }];
+  });
 
   const prelimRows = unique.map(fixture => {
     const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
@@ -400,7 +436,9 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   for (const row of prelimRows) {
     if (!row.match || row.match.state !== 'QUALIFIED') continue;
     const fixtureId = Number(row.fixture.id);
-    const fullOdds = await fetchBet365FullOdds(fixtureId);
+    // One bookmaker lookup failing must not discard all short-form AH lines.
+    let fullOdds: Bet365FullOdds | null = null;
+    try { fullOdds = await fetchBet365FullOdds(fixtureId); } catch { /* audit as missing */ }
     let enriched = enrichWithFullBet365Odds(row.match, fullOdds);
     // Ask Stake only when Bet365 supplies both qualifying markets but FT AH is missing.
     // Do not silently mix prices from distinct bookmakers for goal/corner qualification.
@@ -454,5 +492,6 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
     fixturesWithCompleteMarkets,
     missingMarketCount: Math.max(0, unique.length - fixturesWithCompleteMarkets),
     audit,
+    handicapLines,
   };
 }
