@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
+import { getFiveDollarScan, getFiveDollarAhLinesOnly } from '../../../lib/fiveDollarFootball';
 import { getApiFootballScan } from '../../../lib/apiFootball';
 import { evaluateV1 } from '../../../lib/rules';
 import { supplementFtAhLine } from '../../../lib/ftAsianRecovery';
@@ -27,6 +27,7 @@ type Payload = {
   handicapVerifiedCount?: number;
   handicapMissingCount?: number;
   handicapLineOnlyCount?: number;
+  ahRecoveredAt?: string;
   webCallsThisScan: number;
   estimatedCostUsd: number;
   updatedAt: string;
@@ -122,6 +123,56 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const refresh = url.searchParams.get('refresh') === '1';
   const cached = await readCache();
+  const recoverAh = url.searchParams.get('recoverAh') === '1';
+
+  if (recoverAh) {
+    if (!cached) return NextResponse.json({ error: 'No saved scan to recover' }, { status: 404 });
+    const remaining = (cached.payload.matches as TradingMatch[]).filter(m =>
+      m.status === 'PRE' && !m.handicapVerified && !m.handicapLineVerified &&
+      Date.parse(m.kickoff ?? '') > Date.now()
+    );
+    if (!remaining.length) return NextResponse.json({
+      ...cached.payload, cacheStatus: 'HIT',
+      message: 'No upcoming saved matches missing FT handicap; zero new provider requests.',
+    });
+    if (cached.payload.ahRecoveredAt &&
+        Date.now() - Date.parse(cached.payload.ahRecoveredAt) < 20 * 60 * 1000) {
+      return NextResponse.json({
+        ...cached.payload, cacheStatus: 'HIT',
+        message: 'FT AH-only lookup is on a 20-minute cooldown; no new provider requests.',
+      });
+    }
+    if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY) {
+      return NextResponse.json({ ...cached.payload, cacheStatus: 'HIT',
+        message: '5Dollar provider key missing; no AH-only request made.' });
+    }
+    try {
+      // Only the inexpensive fixture-list endpoint: no full 24h rescan and no
+      // per-fixture bookmaker requests. Keep the existing prices untouched.
+      const lines = await getFiveDollarAhLinesOnly();
+      const oldRows = cached.payload.matches as TradingMatch[];
+      const recovered = supplementFtAhLine(oldRows, lines);
+      const recoveredCount = recovered.filter((m, i) =>
+        m.handicapLineVerified === true && oldRows[i].handicapLineVerified !== true).length;
+      const payload = auditCachedPayload({
+        ...cached.payload,
+        matches: recovered,
+        ahRecoveredAt: new Date().toISOString(),
+        message: `FT AH-only lookup: recovered ${recoveredCount} line(s) from fixture summary. Existing Goal/Corner odds preserved. Source prices remain missing where not supplied.`,
+      });
+      await writeCache(payload, cached.expiresAt);
+      return NextResponse.json({ ...payload, cacheStatus: 'HIT' }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0' },
+      });
+    } catch (error) {
+      return NextResponse.json({
+        ...cached.payload, cacheStatus: 'HIT',
+        message: 'FT AH recovery unavailable: ' +
+          (error instanceof Error ? error.message : 'provider error') +
+          '. Existing odds were not overwritten.',
+      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    }
+  }
 
   if (!refresh) {
     if (cached) {
