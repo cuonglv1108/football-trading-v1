@@ -9,7 +9,14 @@ const API_BASE = 'https://v3.football.api-sports.io';
 const ATTEMPT_FILE = process.env.V1_FT_ATTEMPT_FILE || '/data/v1-ft-attempts.json';
 const COOLDOWN_MS = Math.max(15 * 60000, Number(process.env.V1_FT_RETRY_COOLDOWN_MS || 60 * 60000));
 const LEAGUE_IDS: Record<League, number> = {
-  MLS: 253, Allsvenskan: 113, 'Liga MX': 262, 'Brazil Serie A': 71,
+  MLS: 253,
+  Allsvenskan: 113,
+  'Liga MX': 262,
+  'Brazil Serie A': 71,
+  Eredivisie: 88,
+  'Swiss Super League': 207,
+  'Danish Superliga': 119,
+  Eliteserien: 103,
 };
 
 export type VerifiedFtRow = {
