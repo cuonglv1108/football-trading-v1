@@ -167,7 +167,11 @@ function quote<T extends { line?: number | null }>(
   market: { opening?: T | null; closing?: T | null; inplay?: T | null } | null | undefined
 ): T | null {
   if (!market) return null;
-  // Closing snapshots can be partial; prefer a complete two-sided quote.\n  const values = [market.closing, market.opening];\n  return values.find(v => v && finiteNumber(v.line) !== null &&\n    ('over' in v ? finiteNumber(v.over) !== null && finiteNumber(v.under) !== null :\n     'home' in v ? finiteNumber(v.home) !== null && finiteNumber(v.away) !== null : false)) ?? null;
+  // Closing snapshots can be partial; prefer a complete two-sided quote.
+  const values = [market.closing, market.opening];
+  return values.find(v => v && finiteNumber(v.line) !== null &&
+    ('over' in v ? finiteNumber(v.over) !== null && finiteNumber(v.under) !== null :
+     'home' in v ? finiteNumber(v.home) !== null && finiteNumber(v.away) !== null : false)) ?? null;
 }
 
 function preliminaryFavourite(fixture: FiveDollarFixture, asian: number | null): {
