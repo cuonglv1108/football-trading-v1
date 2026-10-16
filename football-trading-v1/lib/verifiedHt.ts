@@ -6,7 +6,14 @@ const API_BASE = 'https://v3.football.api-sports.io';
 const ATTEMPT_FILE = process.env.V1_HT_ATTEMPT_FILE || '/data/v1-ht-attempts.json';
 const COOLDOWN_MS = 3 * 60 * 1000;
 const LEAGUES: Record<League, number> = {
-  MLS: 253, Allsvenskan: 113, 'Liga MX': 262, 'Brazil Serie A': 71,
+  MLS: 253,
+  Allsvenskan: 113,
+  'Liga MX': 262,
+  'Brazil Serie A': 71,
+  Eredivisie: 88,
+  'Swiss Super League': 207,
+  'Danish Superliga': 119,
+  Eliteserien: 103,
 };
 
 export type VerifiedHtSnapshot = {
@@ -16,6 +23,10 @@ export type VerifiedHtSnapshot = {
   cornersAway: number;
   liveGoalLine: number | null;
   liveCornerLine: number | null;
+  liveGoalOverOdd: number | null;
+  liveGoalUnderOdd: number | null;
+  liveCornerOverOdd: number | null;
+  liveCornerUnderOdd: number | null;
   missingInputs?: string[];
   sourceSummary: string;
   sourceUrls: string[];
@@ -90,7 +101,7 @@ function collectBet365Bets(node: unknown, out: Array<{ name: string; values: any
   return out;
 }
 
-function balancedLiveLine(values: any[]): number | null {
+function balancedLiveQuote(values: any[]) {
   const candidates = new Map<number, { over?: number; under?: number; main?: boolean }>();
   for (const value of values ?? []) {
     const label = String(value?.value ?? value?.name ?? '');
@@ -98,31 +109,34 @@ function balancedLiveLine(values: any[]): number | null {
     if (line == null) continue;
     const odd = Number(value?.odd ?? value?.price);
     const slot = candidates.get(line) ?? {};
-    if (/over/i.test(label)) slot.over = Number.isFinite(odd) ? odd : 1.9;
-    if (/under/i.test(label)) slot.under = Number.isFinite(odd) ? odd : 1.9;
+    if (/over/i.test(label) && Number.isFinite(odd)) slot.over = odd;
+    if (/under/i.test(label) && Number.isFinite(odd)) slot.under = odd;
     if (value?.main === true) slot.main = true;
     candidates.set(line, slot);
   }
 
-  let best: { line: number; score: number } | null = null;
+  let best: { line: number; over: number; under: number; score: number } | null = null;
   for (const [line, pair] of candidates) {
     if (pair.over == null || pair.under == null) continue;
-    const score = (pair.main ? -1 : 0) + Math.abs(pair.over - pair.under) +
-      Math.abs(pair.over - 1.9) * 0.2 + Math.abs(pair.under - 1.9) * 0.2;
-    if (!best || score < best.score) best = { line, score };
+    const score =
+      (pair.main ? -3 : 0) +
+      Math.abs(pair.over - pair.under) +
+      Math.abs(pair.over - 1.9) * 0.2 +
+      Math.abs(pair.under - 1.9) * 0.2;
+    if (!best || score < best.score) {
+      best = { line, over: pair.over, under: pair.under, score };
+    }
   }
-  return best?.line ?? null;
+  return best ? { line: best.line, over: best.over, under: best.under } : null;
 }
 
 async function fetchLiveH2Lines(fixtureId: number, key: string) {
   try {
     const rows = await apiGet(`/odds/live?fixture=${fixtureId}`, key);
 
-    // V1 execution must use BET365 lines only.
-    // Goals: Bet365 2nd-half goals line.
-    // Corners: Bet365 LIVE full-match total-corners line at HT.
-    // Example: HT corners 5, Bet365 live total corners 10.5 -> the corner trade
-    // settles against the final FT corner total, not H2 corners alone.
+    // V1 execution uses Bet365 only:
+    // - H2 goals: Bet365 second-half total goals line + both prices.
+    // - Corners: Bet365 live FULL-MATCH total-corners line at HT + both prices.
     const bets = collectBet365Bets(rows);
     const secondHalf = (name: string) => /second\s*half|2nd\s*half|2nd\s*h|\bh2\b/i.test(name);
     const firstHalf = (name: string) => /first\s*half|1st\s*half|1st\s*h|\bh1\b/i.test(name);
@@ -130,7 +144,7 @@ async function fetchLiveH2Lines(fixtureId: number, key: string) {
     const goalBet = bets.find(
       b => secondHalf(b.name) && !/corner/i.test(b.name) &&
         /goal|total|over.*under|over\/under/i.test(b.name) &&
-        balancedLiveLine(b.values) != null
+        balancedLiveQuote(b.values) != null
     );
 
     const cornerBets = bets.filter(
@@ -138,18 +152,32 @@ async function fetchLiveH2Lines(fixtureId: number, key: string) {
         !firstHalf(b.name) &&
         !secondHalf(b.name) &&
         !/home|away|team|race|first to|odd\/even|exact/i.test(b.name) &&
-        balancedLiveLine(b.values) != null
+        balancedLiveQuote(b.values) != null
     );
     const cornerBet =
       cornerBets.find(b => /total\s*corners|corners\s*over.*under|asian.*corner/i.test(b.name)) ??
       cornerBets[0];
 
+    const goal = goalBet ? balancedLiveQuote(goalBet.values) : null;
+    const corner = cornerBet ? balancedLiveQuote(cornerBet.values) : null;
+
     return {
-      liveGoalLine: goalBet ? balancedLiveLine(goalBet.values) : null,
-      liveCornerLine: cornerBet ? balancedLiveLine(cornerBet.values) : null,
+      liveGoalLine: goal?.line ?? null,
+      liveGoalOverOdd: goal?.over ?? null,
+      liveGoalUnderOdd: goal?.under ?? null,
+      liveCornerLine: corner?.line ?? null,
+      liveCornerOverOdd: corner?.over ?? null,
+      liveCornerUnderOdd: corner?.under ?? null,
     };
   } catch {
-    return { liveGoalLine: null, liveCornerLine: null };
+    return {
+      liveGoalLine: null,
+      liveGoalOverOdd: null,
+      liveGoalUnderOdd: null,
+      liveCornerLine: null,
+      liveCornerOverOdd: null,
+      liveCornerUnderOdd: null,
+    };
   }
 }
 async function reserveAttempt(id: string, now: number): Promise<boolean> {
@@ -249,7 +277,11 @@ export async function fetchVerifiedHt(match: TradingMatch): Promise<HtResult> {
         scoreHome: scoreHome!, scoreAway: scoreAway!,
         cornersHome, cornersAway,
         liveGoalLine: liveLines.liveGoalLine,
+        liveGoalOverOdd: liveLines.liveGoalOverOdd,
+        liveGoalUnderOdd: liveLines.liveGoalUnderOdd,
         liveCornerLine: liveLines.liveCornerLine,
+        liveCornerOverOdd: liveLines.liveCornerOverOdd,
+        liveCornerUnderOdd: liveLines.liveCornerUnderOdd,
         missingInputs,
         checkedAt: new Date().toISOString(),
         htVerified: true, htSourceType: 'API_FOOTBALL',
