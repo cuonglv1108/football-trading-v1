@@ -23,6 +23,8 @@ type Payload = {
   qualifiedMatches?: number;
   missingMarketCount?: number;
   marketCoverage?: string;
+  handicapVerifiedCount?: number;
+  handicapMissingCount?: number;
   webCallsThisScan: number;
   estimatedCostUsd: number;
   updatedAt: string;
@@ -152,6 +154,8 @@ export async function GET(request: Request) {
     const second = football.status === 'fulfilled' ? football.value : null;
     const combined = mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []);
     const qualified = combined.filter(m => m.state === 'QUALIFIED');
+    const handicapVerifiedCount = qualified.filter(m => m.handicapVerified === true).length;
+    const handicapMissingCount = qualified.length - handicapVerifiedCount;
     const dataSource = [first && '5DollarFootballAPI', second && 'API-Football'].filter(Boolean).join(' + ');
     const providerNote = [
       first ? '5Dollar OK' : `5Dollar unavailable: ${String(five.status === 'rejected' ? five.reason : '')}`,
@@ -168,17 +172,19 @@ export async function GET(request: Request) {
       dataSource,
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
-      scanStatus: missingMarketCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
+      scanStatus: missingMarketCount > 0 || handicapMissingCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
       fixturesFound,
       fixturesVerified,
       qualifiedMatches: qualified.length,
       missingMarketCount,
+      handicapVerifiedCount,
+      handicapMissingCount,
       marketCoverage: `Provider scans: 5Dollar ${first?.fixturesWithCompleteMarkets ?? 'unavailable'}/${first?.fixturesFound ?? 'unavailable'}; API-Football ${second?.fixturesWithCompleteMarkets ?? 'unavailable'}/${second?.fixturesFound ?? 'unavailable'}. Cross-provider counts are not unique.`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: providerNote,
+      message: `${providerNote}; FT AH verified ${handicapVerifiedCount}/${qualified.length}; missing ${handicapMissingCount}.`,
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };

@@ -165,8 +165,9 @@ function parseHandicap(
   for (const item of values) {
     const side = sideFromValue(item.value);
     const handicap = numberFrom(item.handicap ?? item.value);
-    const odd = Number(item.odd);
-    if (!side || handicap === null || !Number.isFinite(odd)) continue;
+    const odd = item.odd == null || item.odd === '' ? NaN : Number(item.odd);
+    if (!side || handicap === null || !Number.isFinite(odd) || odd <= 1) continue;
+    if (!Number.isInteger(handicap * 4) || Math.abs(handicap) > 5) continue;
     quotes.push({ side, handicap, odd, main: item.main === true });
   }
 
@@ -183,7 +184,8 @@ function parseHandicap(
       if (home.handicap === 0 && away.handicap === 0) continue;
 
       const favourite: 'HOME' | 'AWAY' = home.handicap < 0 ? 'HOME' : 'AWAY';
-      if (moneylineFav && moneylineFav !== favourite) continue;
+      // Moneyline favourite is supporting context, not proof of spread direction.
+      // AH can legitimately disagree with a close 1X2 market; use actual paired lines.
 
       // Prefer true two-way main spreads with prices close to the user's normal
       // Asian range: decimal 1.80-2.00 (HK 0.80-1.00). Allow a small safety band.
@@ -196,6 +198,7 @@ function parseHandicap(
       if (!bothMain && !inBand) continue;
       const score =
         (bothMain ? -5 : 0) +
+        (moneylineFav && moneylineFav !== favourite ? 0.5 : 0) +
         Math.abs(home.odd - away.odd) +
         Math.abs(home.odd - 1.9) +
         Math.abs(away.odd - 1.9);
