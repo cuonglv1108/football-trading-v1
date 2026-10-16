@@ -380,10 +380,13 @@ export type FiveDollarAhLine = {
 
 // The provider's fixture summary may expose the Bet365 Asian handicap LINE
 // without two-sided prices. Keep this distinctly from a verified priced quote.
-export function shortFormAhLine(market: FiveDollarFixture['odds'] extends infer O
-  ? NonNullable<O> extends { asian_handicap?: infer A } ? A : never : never): number | null {
+export function shortFormAhLine(market: {
+  opening?: number | string | null;
+  closing?: number | string | null;
+  current?: number | string | null;
+} | null | undefined): number | null {
   if (!market) return null;
-  for (const raw of [market.closing, (market as { current?: unknown }).current, market.opening]) {
+  for (const raw of [market.closing, market.current, market.opening]) {
     const line = finiteNumber(raw);
     if (line !== null && Math.abs(line) <= 5 && Number.isInteger(line * 4)) return line;
   }
