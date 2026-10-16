@@ -49,20 +49,24 @@ function isTrustedLegacyFt(row: TradingMatch) {
 }
 
 function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
-  const providerRecord =
-    typeof row.sourceSummary === 'string' &&
-    row.sourceSummary.startsWith('API-Football ·');
+  const summary = typeof row.sourceSummary === 'string' ? row.sourceSummary : '';
+  const providerRecord = summary.startsWith('API-Football ·');
+  if (!providerRecord) return row;
 
-  const hasSafeAsianParser = providerRecord && row.sourceSummary!.includes('SAFEv6 verified');
-  if (!providerRecord || hasSafeAsianParser) return row;
-
-  // Any provider handicap snapshot produced before SAFEv6 is not used for HT decisions.
+  // Old client snapshots may contain repeated invalidation strings. Remove only
+  // these annotations; preserve the original provider provenance.
+  const cleaned = summary
+    .replace(/\\s*·\\s*HANDICAP INVALIDATED — SAFEv6 rescan required/g, '')
+    .trim();
+  // SAFEv9 is the current verified AH parser. Earlier verified versions are
+  // deliberately not trusted for HT decisions.
+  const trusted = /SAFEv(?:9|[1-9][0-9]+) AH verified\\b/.test(cleaned);
   return {
     ...row,
-    handicapVerified: false,
-    favouriteCoveringHandicap: false,
-    favouriteLosing: false,
-    sourceSummary: `${row.sourceSummary} · HANDICAP INVALIDATED — SAFEv6 rescan required`,
+    handicapVerified: trusted && row.handicapVerified === true,
+    favouriteCoveringHandicap: trusted ? row.favouriteCoveringHandicap : false,
+    favouriteLosing: trusted ? row.favouriteLosing : false,
+    sourceSummary: cleaned,
   };
 }
 
