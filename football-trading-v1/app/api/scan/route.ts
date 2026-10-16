@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
+import { getFiveDollarScan, getFiveDollarAhLinesOnly } from '../../../lib/fiveDollarFootball';
 import { getApiFootballScan } from '../../../lib/apiFootball';
 import { evaluateV1 } from '../../../lib/rules';
+import { supplementFtAhLine } from '../../../lib/ftAsianRecovery';
 import type { TradingMatch } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,8 @@ type Payload = {
   marketCoverage?: string;
   handicapVerifiedCount?: number;
   handicapMissingCount?: number;
+  handicapLineOnlyCount?: number;
+  ahRecoveredAt?: string;
   webCallsThisScan: number;
   estimatedCostUsd: number;
   updatedAt: string;
@@ -48,7 +51,7 @@ function sameFixture(a: TradingMatch, b: TradingMatch) {
 }
 function usableHandicap(m: TradingMatch) {
   return m.handicapVerified === true && Number.isFinite(m.handicap) &&
-    m.handicap < 0 && m.handicapHomeOdd != null && m.handicapAwayOdd != null &&
+    m.handicap <= 0 && m.handicapHomeOdd != null && m.handicapAwayOdd != null &&
     Number.isFinite(m.handicapHomeOdd) && Number.isFinite(m.handicapAwayOdd);
 }
 function mergeMarketCoverage(primary: TradingMatch[], secondary: TradingMatch[]) {
@@ -88,13 +91,15 @@ function auditCachedPayload(payload: Payload): Payload {
   ).length;
   const verifiedAh = rows.filter(m => m.handicapVerified === true &&
     !/SAFEv[0-8]\b/.test(m.sourceSummary ?? '')).length;
+  const lineOnly = rows.filter(m => m.handicapVerified !== true && m.handicapLineVerified === true).length;
   const complete = rows.length > 0 && priced === rows.length && verifiedAh === rows.length;
   return {
     ...payload,
     scanStatus: payload.scanStatus === 'COMPLETE' && !complete ? 'PARTIAL' : payload.scanStatus,
     handicapVerifiedCount: verifiedAh,
-    handicapMissingCount: rows.length - verifiedAh,
-    marketCoverage: `Qualified two-way FT goals+corners ${priced}/${rows.length}; FT AH ${verifiedAh}/${rows.length} verified. Entire fixture coverage cannot be proven from this cache.`,
+    handicapMissingCount: rows.length - verifiedAh - lineOnly,
+    handicapLineOnlyCount: lineOnly,
+    marketCoverage: `Qualified two-way FT goals+corners ${priced}/${rows.length}; FT AH priced ${verifiedAh}/${rows.length}; line-only ${lineOnly}. Entire fixture coverage cannot be proven from this cache.`,
   };
 }
 async function readCache(): Promise<{ payload: Payload; expiresAt: number } | null> {
@@ -118,6 +123,56 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const refresh = url.searchParams.get('refresh') === '1';
   const cached = await readCache();
+  const recoverAh = url.searchParams.get('recoverAh') === '1';
+
+  if (recoverAh) {
+    if (!cached) return NextResponse.json({ error: 'No saved scan to recover' }, { status: 404 });
+    const remaining = (cached.payload.matches as TradingMatch[]).filter(m =>
+      m.status === 'PRE' && !m.handicapVerified && !m.handicapLineVerified &&
+      Date.parse(m.kickoff ?? '') > Date.now()
+    );
+    if (!remaining.length) return NextResponse.json({
+      ...cached.payload, cacheStatus: 'HIT',
+      message: 'No upcoming saved matches missing FT handicap; zero new provider requests.',
+    });
+    if (cached.payload.ahRecoveredAt &&
+        Date.now() - Date.parse(cached.payload.ahRecoveredAt) < 20 * 60 * 1000) {
+      return NextResponse.json({
+        ...cached.payload, cacheStatus: 'HIT',
+        message: 'FT AH-only lookup is on a 20-minute cooldown; no new provider requests.',
+      });
+    }
+    if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY) {
+      return NextResponse.json({ ...cached.payload, cacheStatus: 'HIT',
+        message: '5Dollar provider key missing; no AH-only request made.' });
+    }
+    try {
+      // Only the inexpensive fixture-list endpoint: no full 24h rescan and no
+      // per-fixture bookmaker requests. Keep the existing prices untouched.
+      const lines = await getFiveDollarAhLinesOnly();
+      const oldRows = cached.payload.matches as TradingMatch[];
+      const recovered = supplementFtAhLine(oldRows, lines);
+      const recoveredCount = recovered.filter((m, i) =>
+        m.handicapLineVerified === true && oldRows[i].handicapLineVerified !== true).length;
+      const payload = auditCachedPayload({
+        ...cached.payload,
+        matches: recovered,
+        ahRecoveredAt: new Date().toISOString(),
+        message: `FT AH-only lookup: recovered ${recoveredCount} line(s) from fixture summary. Existing Goal/Corner odds preserved. Source prices remain missing where not supplied.`,
+      });
+      await writeCache(payload, cached.expiresAt);
+      return NextResponse.json({ ...payload, cacheStatus: 'HIT' }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0' },
+      });
+    } catch (error) {
+      return NextResponse.json({
+        ...cached.payload, cacheStatus: 'HIT',
+        message: 'FT AH recovery unavailable: ' +
+          (error instanceof Error ? error.message : 'provider error') +
+          '. Existing odds were not overwritten.',
+      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    }
+  }
 
   if (!refresh) {
     if (cached) {
@@ -173,10 +228,14 @@ export async function GET(request: Request) {
     }
     const first = five.status === 'fulfilled' ? five.value : null;
     const second = football.status === 'fulfilled' ? football.value : null;
-    const combined = mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []);
+    const combined = supplementFtAhLine(
+      mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []),
+      first?.handicapLines ?? []
+    );
     const qualified = combined.filter(m => m.state === 'QUALIFIED');
     const handicapVerifiedCount = qualified.filter(m => m.handicapVerified === true).length;
-    const handicapMissingCount = qualified.length - handicapVerifiedCount;
+    const handicapLineOnlyCount = qualified.filter(m => m.handicapVerified !== true && m.handicapLineVerified === true).length;
+    const handicapMissingCount = qualified.length - handicapVerifiedCount - handicapLineOnlyCount;
     const dataSource = [first && '5DollarFootballAPI', second && 'API-Football'].filter(Boolean).join(' + ');
     const providerNote = [
       first ? '5Dollar OK' : `5Dollar unavailable: ${String(five.status === 'rejected' ? five.reason : '')}`,
@@ -193,19 +252,20 @@ export async function GET(request: Request) {
       dataSource,
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
-      scanStatus: missingMarketCount > 0 || handicapMissingCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
+      scanStatus: missingMarketCount > 0 || handicapMissingCount > 0 || handicapLineOnlyCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
       fixturesFound,
       fixturesVerified,
       qualifiedMatches: qualified.length,
       missingMarketCount,
       handicapVerifiedCount,
       handicapMissingCount,
+      handicapLineOnlyCount,
       marketCoverage: `Provider scans: 5Dollar ${first?.fixturesWithCompleteMarkets ?? 'unavailable'}/${first?.fixturesFound ?? 'unavailable'}; API-Football ${second?.fixturesWithCompleteMarkets ?? 'unavailable'}/${second?.fixturesFound ?? 'unavailable'}. Cross-provider counts are not unique.`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: `${providerNote}; FT AH verified ${handicapVerifiedCount}/${qualified.length}; missing ${handicapMissingCount}.`,
+      message: `${providerNote}; FT AH priced ${handicapVerifiedCount}/${qualified.length}, line-only ${handicapLineOnlyCount}, missing ${handicapMissingCount}.`,
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };

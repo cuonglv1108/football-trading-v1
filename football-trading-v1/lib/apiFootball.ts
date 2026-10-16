@@ -181,9 +181,10 @@ function parseHandicap(
   for (const home of quotes.filter(q => q.side === 'HOME')) {
     for (const away of quotes.filter(q => q.side === 'AWAY')) {
       if (Math.abs(home.handicap + away.handicap) > 0.001) continue;
-      if (home.handicap === 0 && away.handicap === 0) continue;
+      // A true 0/0 Asian handicap is a valid draw-no-bet line.
 
-      const favourite: 'HOME' | 'AWAY' = home.handicap < 0 ? 'HOME' : 'AWAY';
+      const favourite: 'HOME' | 'AWAY' = home.handicap === 0 ? (moneylineFav ?? 'HOME') :
+        home.handicap < 0 ? 'HOME' : 'AWAY';
       // Moneyline favourite is supporting context, not proof of spread direction.
       // AH can legitimately disagree with a close 1X2 market; use actual paired lines.
 
@@ -195,7 +196,8 @@ function parseHandicap(
       const bothMain = home.main && away.main;
       // Explicit main-market markers are stronger than an arbitrary odds band.
       // Otherwise the odds band remains a conservative heuristic.
-      if (!bothMain && !inBand) continue;
+      // The main AH market often has no main flag; do not discard its sole valid pair.
+      if (!bothMain && !inBand && quotes.length > 2) continue;
       const score =
         (bothMain ? -5 : 0) +
         (moneylineFav && moneylineFav !== favourite ? 0.5 : 0) +
@@ -217,6 +219,16 @@ function parseHandicap(
     homeOdd: best.home.odd,
     awayOdd: best.away.odd,
   };
+}
+
+function parseBookmakerHandicapOnly(bookmaker: any) {
+  if (!Array.isArray(bookmaker?.bets)) return null;
+  const bets = bookmaker.bets;
+  const favourite = moneylineFavourite(bets);
+  return bets.filter((bet: any) =>
+    /asian handicap/i.test(String(bet?.name ?? '')) &&
+    !/half|1st|2nd|alternative|extra time|corners|cards/i.test(String(bet?.name ?? ''))
+  ).map((bet: any) => parseHandicap(bet?.values, favourite)).find(Boolean) ?? null;
 }
 
 function parseBookmakerOdds(bookmaker: any) {
@@ -243,7 +255,7 @@ function parseBookmakerOdds(bookmaker: any) {
   if (!goal || !corner) return null;
 
   const marketFavourite = moneylineFavourite(bets);
-  const handicap = handicapMarkets.map((b: any) => parseHandicap(b?.values, marketFavourite)).find(Boolean) ?? null;
+  const handicap = parseBookmakerHandicapOnly(bookmaker);
   const favourite: 'HOME' | 'AWAY' = handicap?.favourite ?? 'HOME';
 
   return {
@@ -256,11 +268,12 @@ function parseBookmakerOdds(bookmaker: any) {
     favourite,
     handicap: handicap?.handicap ?? 0,
     handicapVerified: Boolean(handicap),
+    handicapBookmakerName: handicap ? String(bookmaker.name ?? 'Unknown bookmaker') : null,
     handicapHomeOdd: handicap?.homeOdd ?? null,
     handicapAwayOdd: handicap?.awayOdd ?? null,
     bookmakerId: Number(bookmaker.id),
     bookmakerName: String(bookmaker.name ?? 'Unknown bookmaker'),
-    oddsParserVersion: 'SAFEv9',
+    oddsParserVersion: 'SAFEv10',
   };
 }
 
@@ -301,9 +314,9 @@ async function resolveBet365BookmakerId() {
   return id;
 }
 
-async function fetchFixtureOdds(fixtureId: number) {
+async function fetchFixtureOdds(fixtureId: number, ahBudget: { remaining: number }) {
   const bookmakerId = await resolveBet365BookmakerId();
-  const cacheKey = `odds-v8-fixture-${fixtureId}`;
+  const cacheKey = `odds-v10-fixture-${fixtureId}`;
   const cached = readCache<any>(cacheKey);
   if (cached !== null) return cached;
 
@@ -313,41 +326,85 @@ async function fetchFixtureOdds(fixtureId: number) {
     .map((item: any) => parsePreferredBookmaker(item, bookmakerId))
     .find(Boolean);
 
-  if (bet365Parsed) {
+  // Keep Bet365 goals + corners intact, but don't stop looking just because
+  // those two markets are complete while the FT Asian Handicap is absent.
+  if (bet365Parsed?.handicapVerified) {
     const result = { ...bet365Parsed, sourceTier: 'BET365' as const };
     writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
     return result;
   }
 
-  // 2) API-Football explicitly notes that odds availability varies by fixture/bookmaker.
-  // If Bet365 is missing one V1 market, inspect other bookmakers instead of silently
-  // dropping the fixture. Goals + corners must come from the SAME bookmaker.
-  const candidates: any[] = [];
+  const completeCandidates: any[] = [];
+  const handicapCandidates: Array<{ bookmakerName: string; id: number; quote: NonNullable<ReturnType<typeof parseBookmakerHandicapOnly>> }> = [];
   let page = 1;
   let totalPages = 1;
-
+  // When Bet365 has goals+corners, only spend up to two additional pages
+  // searching for missing AH; do not exhaust API quota for this enhancement.
+  const pageCap = bet365Parsed ? 2 : 4;
   do {
-    const data = await apiGet<any>(`/odds?fixture=${fixtureId}&page=${page}`);
+    // Extra AH-only searches have a shared per-scan limit; normal fallback
+    // when goals/corners are absent retains its existing provider behaviour.
+    if (bet365Parsed) {
+      if (ahBudget.remaining <= 0) break;
+      ahBudget.remaining--;
+    }
+    let data: ApiResponse<any>;
+    try {
+      data = await apiGet<any>(`/odds?fixture=${fixtureId}&page=${page}`);
+    } catch (error) {
+      if (!bet365Parsed) throw error;
+      break; // recover the already valid Bet365 totals without AH
+    }
     totalPages = Math.max(1, Number(data.paging?.total ?? 1));
 
     for (const item of data.response ?? []) {
       for (const bookmaker of item?.bookmakers ?? []) {
-        const parsed = parseBookmakerOdds(bookmaker);
-        if (parsed) candidates.push(parsed);
+        const handicap = parseBookmakerHandicapOnly(bookmaker);
+        if (handicap) handicapCandidates.push({
+          bookmakerName: String(bookmaker.name ?? 'Unknown bookmaker'),
+          id: Number(bookmaker.id),
+          quote: handicap,
+        });
+        if (!bet365Parsed) {
+          const parsed = parseBookmakerOdds(bookmaker);
+          if (parsed) completeCandidates.push(parsed);
+        }
       }
     }
+    page++;
+  } while (page <= totalPages && page <= pageCap);
 
-    page += 1;
-  } while (page <= totalPages && page <= 4);
+  const ahRank = (name: string) => {
+    const n = name.toLowerCase();
+    if (/^bet365$/.test(n)) return 0;
+    if (n === 'stake' || n === 'stake.com') return 1;
+    return fallbackBookmakerRank(name) + 2;
+  };
+  handicapCandidates.sort((a, b) =>
+    ahRank(a.bookmakerName) - ahRank(b.bookmakerName) ||
+    a.bookmakerName.localeCompare(b.bookmakerName));
+  const bestAh = handicapCandidates[0];
 
-  candidates.sort((a, b) => {
-    const rankDiff = fallbackBookmakerRank(a.bookmakerName) - fallbackBookmakerRank(b.bookmakerName);
-    if (rankDiff !== 0) return rankDiff;
-    return a.bookmakerName.localeCompare(b.bookmakerName);
-  });
-
-  const fallback = candidates[0] ?? null;
-  const result = fallback ? { ...fallback, sourceTier: 'FALLBACK' as const } : null;
+  completeCandidates.sort((a, b) =>
+    fallbackBookmakerRank(a.bookmakerName) - fallbackBookmakerRank(b.bookmakerName) ||
+    a.bookmakerName.localeCompare(b.bookmakerName));
+  const base = bet365Parsed ?? completeCandidates[0] ?? null;
+  if (!base) {
+    writeCache(cacheKey, null, 10 * 60 * 1000);
+    return null;
+  }
+  const supplement = !base.handicapVerified && bestAh ? {
+    favourite: bestAh.quote.favourite,
+    handicap: bestAh.quote.handicap,
+    handicapVerified: true,
+    handicapHomeOdd: bestAh.quote.homeOdd,
+    handicapAwayOdd: bestAh.quote.awayOdd,
+    handicapBookmakerName: bestAh.bookmakerName,
+  } : {};
+  const result = {
+    ...base, ...supplement,
+    sourceTier: bet365Parsed ? 'BET365' as const : 'FALLBACK' as const,
+  };
   writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
   return result;
 }
@@ -423,12 +480,15 @@ function fixtureToBase(
     favourite: odds.favourite,
     handicap: odds.handicap,
     handicapVerified: odds.handicapVerified,
+    prematchHandicapLine: odds.handicapVerified ? (odds.favourite === 'HOME' ? odds.handicap : -odds.handicap) : null,
+    handicapLineVerified: odds.handicapVerified,
+    handicapLineSource: odds.handicapVerified ? `API-Football · ${odds.handicapBookmakerName ?? odds.bookmakerName} · FT Asian Handicap two-way` : null,
     handicapHomeOdd: odds.handicapHomeOdd,
     handicapAwayOdd: odds.handicapAwayOdd,
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv9 AH verified' : 'SAFEv9 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv10 AH verified' : 'SAFEv10 AH unverified'} · FT AH bookmaker ${odds.handicapBookmakerName ?? 'missing'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
@@ -456,6 +516,9 @@ export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
   const now = Date.now();
   const horizonMs = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24))) * 60 * 60 * 1000;
   const horizon = now + horizonMs;
+  const ahBudget = {
+    remaining: Math.min(12, Math.max(0, Number(process.env.API_FOOTBALL_EXTRA_AH_CALLS_PER_SCAN ?? 12))),
+  };
 
   const leagueResults = await Promise.all(
     (Object.entries(LEAGUES) as Array<[League, number]>).map(async ([league, leagueId]) => {
@@ -484,7 +547,7 @@ export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
             };
           }
 
-          const odds = await fetchFixtureOdds(fixtureId);
+          const odds = await fetchFixtureOdds(fixtureId, ahBudget);
           if (!odds) {
             return {
               match: null,

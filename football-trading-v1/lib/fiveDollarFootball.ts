@@ -52,9 +52,10 @@ type FiveDollarFixture = {
       inplay?: { home?: number; draw?: number; away?: number } | null;
     } | null;
     asian_handicap?: {
-      opening?: number | null;
-      closing?: number | null;
-      inplay?: number | null;
+      opening?: number | string | null;
+      closing?: number | string | null;
+      current?: number | string | null;
+      inplay?: number | string | null;
     } | null;
     goal_line?: {
       opening?: number | null;
@@ -223,7 +224,7 @@ async function fetchStakeFtHandicap(fixtureId: number): Promise<{
     const line = finiteNumber(ah?.line);
     const homeOdd = finiteNumber(ah?.home);
     const awayOdd = finiteNumber(ah?.away);
-    if (line === null || line === 0 || Math.abs(line) > 5 ||
+    if (line === null || Math.abs(line) > 5 ||
         !Number.isInteger(line * 4) ||
         homeOdd === null || awayOdd === null ||
         homeOdd <= 1 || homeOdd > 20 ||
@@ -266,14 +267,13 @@ function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | nu
   // main-market band (decimal 1.75-2.05 = HK 0.75-1.05).
   if (
     ahLine !== null &&
-    ahLine !== 0 &&
     homeAhOdd !== null &&
     awayAhOdd !== null &&
     homeAhOdd > 1 && homeAhOdd <= 20 &&
     awayAhOdd > 1 && awayAhOdd <= 20 &&
     Number.isInteger(ahLine * 4) && Math.abs(ahLine) <= 5
   ) {
-    favourite = ahLine < 0 ? 'HOME' : 'AWAY';
+    favourite = ahLine === 0 ? match.favourite : ahLine < 0 ? 'HOME' : 'AWAY';
     handicap = -Math.abs(ahLine);
     handicapVerified = true;
   }
@@ -289,6 +289,9 @@ function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | nu
     favourite,
     handicap,
     handicapVerified,
+    prematchHandicapLine: handicapVerified ? ahLine : match.prematchHandicapLine ?? null,
+    handicapLineVerified: handicapVerified || match.handicapLineVerified === true,
+    handicapLineSource: handicapVerified ? '5DollarFootballAPI · Bet365 FT Asian Handicap priced' : match.handicapLineSource,
     handicapHomeOdd: homeAhOdd,
     handicapAwayOdd: awayAhOdd,
     sourceSummary:
@@ -303,7 +306,7 @@ function fixtureToPreliminaryMatch(league: League, fixture: FiveDollarFixture): 
   const cornerLine = prematchLine(fixture.odds?.corner_line);
   if (goalLine === null || cornerLine === null) return null;
 
-  const asian = prematchLine(fixture.odds?.asian_handicap);
+  const asian = shortFormAhLine(fixture.odds?.asian_handicap);
   const prelim = preliminaryFavourite(fixture, asian);
 
   const match: TradingMatch = {
@@ -369,13 +372,62 @@ export type FiveDollarScanAudit = {
   marketStatus: 'VERIFIED' | 'MISSING_GOAL_OR_CORNER';
 };
 
+export type FiveDollarAhLine = {
+  league: League;
+  home: string;
+  away: string;
+  kickoff: string | null;
+  homeLine: number;
+  source: string;
+};
+
+// The provider's fixture summary may expose the Bet365 Asian handicap LINE
+// without two-sided prices. Keep this distinctly from a verified priced quote.
+export function shortFormAhLine(market: {
+  opening?: number | string | null;
+  closing?: number | string | null;
+  current?: number | string | null;
+} | null | undefined): number | null {
+  if (!market) return null;
+  for (const raw of [market.closing, market.current, market.opening]) {
+    const line = finiteNumber(raw);
+    if (line !== null && Math.abs(line) <= 5 && Number.isInteger(line * 4)) return line;
+  }
+  return null;
+}
+
 export type FiveDollarScanResult = {
   matches: TradingMatch[];
   fixturesFound: number;
   fixturesWithCompleteMarkets: number;
   missingMarketCount: number;
   audit: FiveDollarScanAudit[];
+  handicapLines: FiveDollarAhLine[];
 };
+
+function extractShortAhLines(fixtures: FiveDollarFixture[]): FiveDollarAhLine[] {
+  return fixtures.flatMap(fixture => {
+    const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
+    const homeLine = shortFormAhLine(fixture.odds?.asian_handicap);
+    if (!league || homeLine === null || !fixture.teams?.home?.name || !fixture.teams?.away?.name) return [];
+    return [{
+      league,
+      home: fixture.teams.home.name,
+      away: fixture.teams.away.name,
+      kickoff: fixture.kickoff_utc ?? null,
+      homeLine,
+      source: '5DollarFootballAPI fixture summary (FT Asian Handicap line only; prices unavailable)',
+    }];
+  });
+
+}
+
+export async function getFiveDollarAhLinesOnly(): Promise<FiveDollarAhLine[]> {
+  const start = Math.floor(Date.now() / 1000);
+  const hours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
+  const fixtures = await fetchTargetWindow(start, start + hours * 3600);
+  return extractShortAhLines(fixtures);
+}
 
 export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   const now = Math.floor(Date.now() / 1000);
@@ -386,6 +438,8 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   const unique = Array.from(
     new Map(fixtures.map(fixture => [String(fixture.id ?? ''), fixture])).values()
   ).filter(fixture => fixture.id != null);
+
+  const handicapLines = extractShortAhLines(unique);
 
   const prelimRows = unique.map(fixture => {
     const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
@@ -400,7 +454,9 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   for (const row of prelimRows) {
     if (!row.match || row.match.state !== 'QUALIFIED') continue;
     const fixtureId = Number(row.fixture.id);
-    const fullOdds = await fetchBet365FullOdds(fixtureId);
+    // One bookmaker lookup failing must not discard all short-form AH lines.
+    let fullOdds: Bet365FullOdds | null = null;
+    try { fullOdds = await fetchBet365FullOdds(fixtureId); } catch { /* audit as missing */ }
     let enriched = enrichWithFullBet365Odds(row.match, fullOdds);
     // Ask Stake only when Bet365 supplies both qualifying markets but FT AH is missing.
     // Do not silently mix prices from distinct bookmakers for goal/corner qualification.
@@ -408,12 +464,15 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
         enriched.kickoff && new Date(enriched.kickoff).getTime() > Date.now()) {
       const stake = await fetchStakeFtHandicap(fixtureId);
       if (stake) {
-        const favourite = stake.line < 0 ? 'HOME' : 'AWAY';
+        const favourite = stake.line === 0 ? enriched.favourite : stake.line < 0 ? 'HOME' : 'AWAY';
         const supplemented: TradingMatch = {
           ...enriched,
           favourite,
           handicap: -Math.abs(stake.line),
           handicapVerified: true,
+          prematchHandicapLine: stake.line,
+          handicapLineVerified: true,
+          handicapLineSource: '5DollarFootballAPI · Stake two-way FT Asian Handicap',
           handicapHomeOdd: stake.homeOdd,
           handicapAwayOdd: stake.awayOdd,
           sourceSummary: `${enriched.sourceSummary} · FT AH: Stake (supplement; not Bet365) · snapshot ${stake.capturedAt}`,
@@ -454,5 +513,6 @@ export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
     fixturesWithCompleteMarkets,
     missingMarketCount: Math.max(0, unique.length - fixturesWithCompleteMarkets),
     audit,
+    handicapLines,
   };
 }

@@ -112,6 +112,7 @@ export default function Home() {
   const [checkpoint, setCheckpoint] = useState<TradingMatch | null>(null);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ahLoading, setAhLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState('');
   const [updatedAt, setUpdatedAt] = useState('');
   const [nextRefreshAt, setNextRefreshAt] = useState('');
@@ -354,6 +355,40 @@ export default function Home() {
     ).slice(0, 150);
     setHistory(deduped);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
+  }
+
+  // Limited on-demand recovery from the existing provider snapshot.
+  // It avoids another full Scan 24h and never manufactures two-way prices.
+  async function recoverAhOnly() {
+    if (ahLoading || loading) return;
+    setAhLoading(true);
+    try {
+      const res = await fetch('/api/scan?recoverAh=1', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setNotice(data.error ?? 'No saved scan available for FT AH recovery.');
+        return;
+      }
+      const incoming = ((data.matches ?? []) as TradingMatch[]).map(sanitizeOddsSnapshot);
+      setMatches(incoming);
+      setScanStatus(data.scanStatus ?? '');
+      setScanCoverage(data.marketCoverage ?? '');
+      if (incoming.length) {
+        setStarred(prev => {
+          const next = mergeWatchlistOdds(
+            prev.filter(m => m.status !== 'FT' && !isWatchExpired(m)),
+            incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))
+          );
+          localStorage.setItem(STAR_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      setNotice(data.message ?? 'FT AH recovery finished. Unavailable markets remain missing.');
+    } catch {
+      setNotice('FT AH recovery request failed; original odds were preserved.');
+    } finally {
+      setAhLoading(false);
+    }
   }
 
   async function scanUpcoming() {
@@ -719,6 +754,15 @@ export default function Home() {
         <div><span>Saved</span><strong>{starred.length}</strong></div>
         <div><span>Due now</span><strong>{dueCount}</strong></div>
       </section>
+
+      {view !== 'HISTORY' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, margin: '8px 0 12px' }}>
+          <small style={{ opacity: 0.72 }}>FT AH only · uses provider requests</small>
+          <button className="quickAction" onClick={recoverAhOnly} disabled={ahLoading || loading}>
+            {ahLoading ? 'Recovering AH…' : 'Recover FT AH'}
+          </button>
+        </div>
+      )}
 
       <nav className="mainTabs">
         <button className={view === 'STARRED' ? 'active' : ''} onClick={() => setView('STARRED')}>★ My Watches</button>

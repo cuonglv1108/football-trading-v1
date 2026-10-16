@@ -81,6 +81,10 @@ export interface TradingMatch {
   favourite: 'HOME' | 'AWAY';
   handicap: number;
   handicapVerified?: boolean;
+  // Independent pre-match FT Asian Handicap line (home perspective), even if side prices are unavailable.
+  prematchHandicapLine?: number | null;
+  handicapLineVerified?: boolean;
+  handicapLineSource?: string | null;
   handicapHomeOdd?: number | null;
   handicapAwayOdd?: number | null;
   favouriteCoveringHandicap: boolean;
