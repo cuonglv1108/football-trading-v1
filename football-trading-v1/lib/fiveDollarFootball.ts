@@ -4,11 +4,19 @@ import { evaluateV1 } from './rules';
 const BASE_URL = 'https://api.5dollarfootballapi.com/v1';
 
 const LEAGUES: Array<{ league: League; ids: number[] }> = [
-  { league: 'MLS', ids: [2221499861, 751043315] },
+  { league: 'Eredivisie', ids: [137325260] },
   { league: 'Allsvenskan', ids: [112989244] },
-  { league: 'Liga MX', ids: [2540173422] },
   { league: 'Brazil Serie A', ids: [3118717965] },
+  { league: 'Liga MX', ids: [2540173422] },
+  { league: 'Swiss Super League', ids: [1810150156] },
+  { league: 'Danish Superliga', ids: [357008264] },
+  { league: 'Eliteserien', ids: [3962220103] },
+  { league: 'MLS', ids: [2221499861, 751043315] },
 ];
+
+const LEAGUE_BY_ID = new Map<number, League>(
+  LEAGUES.flatMap(({ league, ids }) => ids.map(id => [id, league] as const))
+);
 
 type FiveDollarResponse<T> = {
   success?: number;
@@ -61,7 +69,70 @@ type FiveDollarFixture = {
   };
 };
 
+type TwoWayTotalQuote = {
+  line?: number | null;
+  over?: number | null;
+  under?: number | null;
+};
+
+type TwoWayHandicapQuote = {
+  line?: number | null;
+  home?: number | null;
+  away?: number | null;
+};
+
+type Bet365FullOdds = {
+  '1x2'?: {
+    opening?: { home?: number | null; draw?: number | null; away?: number | null } | null;
+    closing?: { home?: number | null; draw?: number | null; away?: number | null } | null;
+    inplay?: { home?: number | null; draw?: number | null; away?: number | null } | null;
+  } | null;
+  asian_handicap?: {
+    opening?: TwoWayHandicapQuote | null;
+    closing?: TwoWayHandicapQuote | null;
+    inplay?: TwoWayHandicapQuote | null;
+  } | null;
+  goal_line?: {
+    opening?: TwoWayTotalQuote | null;
+    closing?: TwoWayTotalQuote | null;
+    inplay?: TwoWayTotalQuote | null;
+  } | null;
+  corner_line?: {
+    opening?: TwoWayTotalQuote | null;
+    closing?: TwoWayTotalQuote | null;
+    inplay?: TwoWayTotalQuote | null;
+  } | null;
+};
+
+type FullOddsResponse = {
+  fixture_id?: number;
+  bookmakers?: Array<{
+    name?: string;
+    slug?: string;
+    odds?: Bet365FullOdds;
+  }>;
+};
+
+
+const providerRequestTimes: number[] = [];
+
+async function respectProviderRateLimit() {
+  while (true) {
+    const now = Date.now();
+    while (providerRequestTimes.length && now - providerRequestTimes[0] >= 60000) {
+      providerRequestTimes.shift();
+    }
+    if (providerRequestTimes.length < 9) {
+      providerRequestTimes.push(now);
+      return;
+    }
+    const waitMs = Math.max(250, 60250 - (now - providerRequestTimes[0]));
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+}
+
 async function apiGet<T>(path: string): Promise<FiveDollarResponse<T>> {
+  await respectProviderRateLimit();
   const key = process.env.FIVE_DOLLAR_FOOTBALL_API_KEY;
   if (!key) throw new Error('FIVE_DOLLAR_FOOTBALL_API_KEY is not configured');
 
@@ -91,17 +162,20 @@ function prematchLine(
   return finiteNumber(market.closing) ?? finiteNumber(market.opening);
 }
 
-function favouriteFromFixture(fixture: FiveDollarFixture, asian: number | null): {
+function quote<T extends { line?: number | null }>(
+  market: { opening?: T | null; closing?: T | null; inplay?: T | null } | null | undefined
+): T | null {
+  if (!market) return null;
+  return market.closing ?? market.opening ?? null;
+}
+
+function preliminaryFavourite(fixture: FiveDollarFixture, asian: number | null): {
   favourite: 'HOME' | 'AWAY';
   handicap: number;
   handicapVerified: boolean;
 } {
-  if (asian !== null && asian < 0) {
-    return { favourite: 'HOME', handicap: asian, handicapVerified: true };
-  }
-  if (asian !== null && asian > 0) {
-    return { favourite: 'AWAY', handicap: -Math.abs(asian), handicapVerified: true };
-  }
+  if (asian !== null && asian < 0) return { favourite: 'HOME', handicap: asian, handicapVerified: true };
+  if (asian !== null && asian > 0) return { favourite: 'AWAY', handicap: -Math.abs(asian), handicapVerified: true };
 
   const oneXtwo = fixture.odds?.['1x2']?.closing ?? fixture.odds?.['1x2']?.opening;
   const homeOdd = finiteNumber(oneXtwo?.home);
@@ -112,13 +186,86 @@ function favouriteFromFixture(fixture: FiveDollarFixture, asian: number | null):
   return { favourite, handicap: 0, handicapVerified: false };
 }
 
-function fixtureToMatch(league: League, fixture: FiveDollarFixture): TradingMatch | null {
+async function fetchBet365FullOdds(fixtureId: number): Promise<Bet365FullOdds | null> {
+  const response = await apiGet<FullOddsResponse>(`/fixtures/${fixtureId}/odds?bookmakers=bet365`);
+  const rows = response.data?.bookmakers ?? [];
+  const bet365 = rows.find(row =>
+    String(row.slug ?? '').toLowerCase() === 'bet365' ||
+    /bet\s*365/i.test(String(row.name ?? ''))
+  );
+  return bet365?.odds ?? null;
+}
+
+function enrichWithFullBet365Odds(match: TradingMatch, odds: Bet365FullOdds | null): TradingMatch | null {
+  if (!odds) return null;
+
+  const goal = quote(odds.goal_line);
+  const corner = quote(odds.corner_line);
+  const goalLine = finiteNumber(goal?.line);
+  const cornerLine = finiteNumber(corner?.line);
+  const goalOver = finiteNumber(goal?.over);
+  const goalUnder = finiteNumber(goal?.under);
+  const cornerOver = finiteNumber(corner?.over);
+  const cornerUnder = finiteNumber(corner?.under);
+
+  // A displayed qualified match must have the exact Bet365 line plus both-way prices.
+  if ([goalLine, cornerLine, goalOver, goalUnder, cornerOver, cornerUnder].some(v => v === null)) {
+    return null;
+  }
+
+  const ah = quote(odds.asian_handicap);
+  const ahLine = finiteNumber(ah?.line);
+  const homeAhOdd = finiteNumber(ah?.home);
+  const awayAhOdd = finiteNumber(ah?.away);
+
+  let favourite = match.favourite;
+  let handicap = 0;
+  let handicapVerified = false;
+
+  // 5Dollar's Bet365 full odds are a true two-way spread: a negative line means
+  // HOME gives the handicap; a positive line means AWAY gives it.
+  // Keep the AH only when both side prices are present and sit in a realistic
+  // main-market band (decimal 1.75-2.05 = HK 0.75-1.05).
+  if (
+    ahLine !== null &&
+    ahLine !== 0 &&
+    homeAhOdd !== null &&
+    awayAhOdd !== null &&
+    homeAhOdd >= 1.75 && homeAhOdd <= 2.05 &&
+    awayAhOdd >= 1.75 && awayAhOdd <= 2.05
+  ) {
+    favourite = ahLine < 0 ? 'HOME' : 'AWAY';
+    handicap = -Math.abs(ahLine);
+    handicapVerified = true;
+  }
+
+  const enriched: TradingMatch = {
+    ...match,
+    prematchGoalLine: goalLine!,
+    prematchCornerLine: cornerLine!,
+    prematchGoalOverOdd: goalOver,
+    prematchGoalUnderOdd: goalUnder,
+    prematchCornerOverOdd: cornerOver,
+    prematchCornerUnderOdd: cornerUnder,
+    favourite,
+    handicap,
+    handicapVerified,
+    handicapHomeOdd: homeAhOdd,
+    handicapAwayOdd: awayAhOdd,
+    sourceSummary:
+      `5DollarFootballAPI · Bet365 FULL 2-way prices · ${handicapVerified ? 'AH verified' : 'AH unverified'} · fixture ${match.id}`,
+  };
+
+  return { ...enriched, ...evaluateV1(enriched) };
+}
+
+function fixtureToPreliminaryMatch(league: League, fixture: FiveDollarFixture): TradingMatch | null {
   const goalLine = prematchLine(fixture.odds?.goal_line);
   const cornerLine = prematchLine(fixture.odds?.corner_line);
   if (goalLine === null || cornerLine === null) return null;
 
   const asian = prematchLine(fixture.odds?.asian_handicap);
-  const handicap = favouriteFromFixture(fixture, asian);
+  const prelim = preliminaryFavourite(fixture, asian);
 
   const match: TradingMatch = {
     id: String(fixture.id ?? ''),
@@ -136,33 +283,42 @@ function fixtureToMatch(league: League, fixture: FiveDollarFixture): TradingMatc
     cornersAway: 0,
     prematchCornerLine: cornerLine,
     prematchGoalLine: goalLine,
-    favourite: handicap.favourite,
-    handicap: handicap.handicap,
-    handicapVerified: handicap.handicapVerified,
+    prematchCornerOverOdd: null,
+    prematchCornerUnderOdd: null,
+    prematchGoalOverOdd: null,
+    prematchGoalUnderOdd: null,
+    favourite: prelim.favourite,
+    handicap: prelim.handicap,
+    handicapVerified: false,
+    handicapHomeOdd: null,
+    handicapAwayOdd: null,
     favouriteCoveringHandicap: false,
     favouriteLosing: false,
     ftGoalOverClear: false,
-    sourceSummary:
-      `5DollarFootballAPI · Bet365 · short-form lines · ${handicap.handicapVerified ? 'AH verified' : 'AH unavailable/pick'} · fixture ${fixture.id ?? ''}`,
+    sourceSummary: `5DollarFootballAPI · Bet365 short-form qualification lines · fixture ${fixture.id ?? ''}`,
     sourceUrls: [],
   };
 
   return { ...match, ...evaluateV1(match) };
 }
 
-async function fetchLeagueWindow(league: League, leagueId: number, start: number, end: number) {
-  const path =
-    `/leagues/${leagueId}/fixtures?start_time=${start}&end_time=${end}` +
-    '&status=scheduled&include=odds&order=asc&page=1&per_page=50';
+async function fetchTargetWindow(start: number, end: number) {
+  const rows: FiveDollarFixture[] = [];
+  let page = 1;
 
-  const response = await apiGet<FiveDollarFixture[]>(path);
-  const fixtures = Array.isArray(response.data) ? response.data : [];
+  while (true) {
+    const path =
+      `/fixtures?start_time=${start}&end_time=${end}` +
+      `&status=scheduled&include=odds&page=${page}&per_page=50`;
+    const response = await apiGet<FiveDollarFixture[]>(path);
+    const batch = Array.isArray(response.data) ? response.data : [];
+    rows.push(...batch);
 
-  return fixtures.map(fixture => ({
-    league,
-    fixture,
-    match: fixtureToMatch(league, fixture),
-  }));
+    if (!response.pagination?.has_more || batch.length === 0) break;
+    page += 1;
+  }
+
+  return rows.filter(fixture => LEAGUE_BY_ID.has(Number(fixture.league?.id)));
 }
 
 export type FiveDollarScanAudit = {
@@ -184,38 +340,52 @@ export type FiveDollarScanResult = {
 
 export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
   const now = Math.floor(Date.now() / 1000);
-  const horizonHours = Number(process.env.PREMATCH_SCAN_HOURS ?? 72);
+  const horizonHours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
   const end = now + horizonHours * 60 * 60;
 
-  const requests = LEAGUES.flatMap(({ league, ids }) =>
-    ids.map(id => fetchLeagueWindow(league, id, now, end))
-  );
+  const fixtures = await fetchTargetWindow(now, end);
+  const unique = Array.from(
+    new Map(fixtures.map(fixture => [String(fixture.id ?? ''), fixture])).values()
+  ).filter(fixture => fixture.id != null);
 
-  const groups = await Promise.all(requests);
-  const rows = groups.flat();
+  const prelimRows = unique.map(fixture => {
+    const league = LEAGUE_BY_ID.get(Number(fixture.league?.id));
+    if (!league) return { fixture, league: null as League | null, match: null as TradingMatch | null };
+    return { fixture, league, match: fixtureToPreliminaryMatch(league, fixture) };
+  });
 
-  const deduped = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
-    const id = String(row.fixture.id ?? '');
-    if (id && !deduped.has(id)) deduped.set(id, row);
+  // Full Bet365 price calls are only made for fixtures that pass the V1 line gate.
+  // This keeps the scan accurate without spending a full-odds request on every fixture.
+  const matches: TradingMatch[] = [];
+  const fullOddsMissing = new Set<string>();
+  for (const row of prelimRows) {
+    if (!row.match || row.match.state !== 'QUALIFIED') continue;
+    const fixtureId = Number(row.fixture.id);
+    const fullOdds = await fetchBet365FullOdds(fixtureId);
+    const enriched = enrichWithFullBet365Odds(row.match, fullOdds);
+    if (!enriched) {
+      fullOddsMissing.add(String(row.fixture.id));
+      continue;
+    }
+    if (enriched.state === 'QUALIFIED') matches.push(enriched);
   }
-
-  const unique = Array.from(deduped.values());
-  const matches = unique
-    .map(row => row.match)
-    .filter(Boolean) as TradingMatch[];
 
   matches.sort(
     (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
   );
 
-  const audit: FiveDollarScanAudit[] = unique.map(row => ({
+  const audit: FiveDollarScanAudit[] = prelimRows.map(row => ({
     fixtureId: String(row.fixture.id ?? ''),
-    league: row.league,
+    league: row.league ?? 'MLS',
     home: row.fixture.teams?.home?.name ?? 'Home',
     away: row.fixture.teams?.away?.name ?? 'Away',
     kickoff: row.fixture.kickoff_utc ?? null,
-    marketStatus: row.match ? 'VERIFIED' : 'MISSING_GOAL_OR_CORNER',
+    marketStatus:
+      row.match == null
+        ? 'MISSING_GOAL_OR_CORNER'
+        : fullOddsMissing.has(String(row.fixture.id))
+          ? 'MISSING_GOAL_OR_CORNER'
+          : 'VERIFIED',
   }));
 
   const fixturesWithCompleteMarkets = audit.filter(a => a.marketStatus === 'VERIFIED').length;
