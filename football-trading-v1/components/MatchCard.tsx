@@ -5,6 +5,17 @@ import { TradingMatch } from '../lib/types';
 import { deriveH2Execution } from '../lib/h2Execution';
 import { evaluateMethodOutcomes, inferVerifiedHtAction, methodMatchStatus } from '../lib/outcomes';
 
+function hkOdd(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const hk = value >= 1 ? value - 1 : value;
+  return hk.toFixed(2);
+}
+
+function totalPrice(line: number | null | undefined, over: number | null | undefined, under: number | null | undefined) {
+  if (line == null || !Number.isFinite(line)) return '—';
+  return `${line} · O ${hkOdd(over)} / U ${hkOdd(under)}`;
+}
+
 type Props = {
   match: TradingMatch;
   starred?: boolean;
@@ -21,9 +32,12 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const totalCorners = match.cornersHome + match.cornersAway;
   const [expanded, setExpanded] = useState(false);
   const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
-  const handicapText = match.handicapVerified === false
+  const homeHandicap = match.handicapVerified === true
+    ? (match.favourite === 'HOME' ? match.handicap : -match.handicap)
+    : null;
+  const handicapText = homeHandicap == null
     ? '—'
-    : `${favouriteName} ${match.handicap > 0 ? '+' : ''}${match.handicap}`;
+    : `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} @ ${hkOdd(match.handicapHomeOdd)} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap} @ ${hkOdd(match.handicapAwayOdd)}`;
   const reliableFt = match.researchPhase === 'FT' && match.ftVerified === true &&
     /^API-Football fixture \d+/.test(match.ftSourceSummary ?? '');
   const verifiedHt = match.htVerified === true && match.htSourceType === 'API_FOOTBALL';
@@ -110,12 +124,15 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div className="verifyStrip">
               <span>HT VERIFIED</span>
               <b>{verifiedAction}</b>
-              <small>Corners {htCorners ?? '—'} · G {match.liveGoalLine ?? '—'} · C {match.liveCornerLine ?? '—'}</small>
+              <small>
+                HT corners {htCorners ?? '—'} · H2 Goals {totalPrice(match.liveGoalLine, match.liveGoalOverOdd, match.liveGoalUnderOdd)}
+                {' · '}Corners {totalPrice(match.liveCornerLine, match.liveCornerOverOdd, match.liveCornerUnderOdd)}
+              </small>
             </div>
 
             <div className="metrics">
-              <div><span>Bet365 corner</span><b>{match.liveCornerLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_CORNERS')?.line ?? '—'}</b></div>
-              <div><span>Bet365 H2 goals</span><b>{match.liveGoalLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_GOALS')?.line ?? '—'}</b></div>
+              <div><span>Bet365 corner</span><b>{totalPrice(match.liveCornerLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_CORNERS')?.line, match.liveCornerOverOdd, match.liveCornerUnderOdd)}</b></div>
+              <div><span>Bet365 H2 goals</span><b>{totalPrice(match.liveGoalLine ?? (match.h2Predictions ?? []).find(p => p.market === 'H2_GOALS')?.line, match.liveGoalOverOdd, match.liveGoalUnderOdd)}</b></div>
               <div><span>H2 corners</span><b>{match.h2ActualCorners ?? '—'}</b></div>
               <div><span>H2 goals</span><b>{match.h2ActualGoals ?? '—'}</b></div>
             </div>
@@ -211,7 +228,10 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <b>{executionText}</b>
           </div>
           {!unverifiedHt && (match.liveGoalLine != null || match.liveCornerLine != null) && (
-            <small>H2 lines · Goals {match.liveGoalLine ?? '—'} · Corners {match.liveCornerLine ?? '—'}</small>
+            <small>
+              Bet365 · Goals {totalPrice(match.liveGoalLine, match.liveGoalOverOdd, match.liveGoalUnderOdd)}
+              {' · '}Corners {totalPrice(match.liveCornerLine, match.liveCornerOverOdd, match.liveCornerUnderOdd)}
+            </small>
           )}
         </div>
       )}
@@ -248,9 +268,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
         <>
           <div className="metrics">
             <div><span>Corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
-            <div><span>Pre corner</span><b>{match.prematchCornerLine}</b></div>
-            <div><span>Pre goals</span><b>{match.prematchGoalLine}</b></div>
-            <div><span>FT handicap</span><b>{handicapText}</b></div>
+            <div><span>Pre corner</span><b>{totalPrice(match.prematchCornerLine, match.prematchCornerOverOdd, match.prematchCornerUnderOdd)}</b></div>
+            <div><span>Pre goals</span><b>{totalPrice(match.prematchGoalLine, match.prematchGoalOverOdd, match.prematchGoalUnderOdd)}</b></div>
+            <div><span>2-way handicap</span><b>{handicapText}</b></div>
           </div>
 
           {match.sourceSummary && (
@@ -265,8 +285,11 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {!unverifiedHt && (match.liveCornerLine != null || match.liveGoalLine != null) && (
             <div className="liveLines">
-              <span>365 snapshot</span>
-              <b>C {match.liveCornerLine ?? '—'} · G {match.liveGoalLine ?? '—'}</b>
+              <span>Bet365 HT snapshot</span>
+              <b>
+                G {totalPrice(match.liveGoalLine, match.liveGoalOverOdd, match.liveGoalUnderOdd)}
+                {' · '}C {totalPrice(match.liveCornerLine, match.liveCornerOverOdd, match.liveCornerUnderOdd)}
+              </b>
             </div>
           )}
 
