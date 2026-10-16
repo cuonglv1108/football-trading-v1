@@ -16,4 +16,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - run: npm run test:odds
       - run: npm run build
