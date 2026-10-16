@@ -50,7 +50,7 @@ function sameFixture(a: TradingMatch, b: TradingMatch) {
 }
 function usableHandicap(m: TradingMatch) {
   return m.handicapVerified === true && Number.isFinite(m.handicap) &&
-    m.handicap < 0 && m.handicapHomeOdd != null && m.handicapAwayOdd != null &&
+    m.handicap <= 0 && m.handicapHomeOdd != null && m.handicapAwayOdd != null &&
     Number.isFinite(m.handicapHomeOdd) && Number.isFinite(m.handicapAwayOdd);
 }
 function mergeMarketCoverage(primary: TradingMatch[], secondary: TradingMatch[]) {
