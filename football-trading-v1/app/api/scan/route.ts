@@ -3,6 +3,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getFiveDollarScan } from '../../../lib/fiveDollarFootball';
 import { getApiFootballScan } from '../../../lib/apiFootball';
+import { evaluateV1 } from '../../../lib/rules';
+import type { TradingMatch } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,6 +31,49 @@ type Payload = {
   cacheStatus?: 'HIT' | 'MISS' | 'STALE';
   nextRefreshAt?: string;
 };
+
+// Fixture IDs differ between providers. Match only strongly identified, nearby kickoff fixtures.
+function matchKey(m: TradingMatch) {
+  const norm = (name: string) => name.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/\\b(fc|cf|sc|afc|club|football)\\b/g, '').replace(/[^a-z0-9]/g, '');
+  return `${m.league}:${norm(m.home)}:${norm(m.away)}`;
+}
+function sameFixture(a: TradingMatch, b: TradingMatch) {
+  const at = Date.parse(a.kickoff ?? '');
+  const bt = Date.parse(b.kickoff ?? '');
+  return matchKey(a) === matchKey(b) && Number.isFinite(at) && Number.isFinite(bt) &&
+    Math.abs(at - bt) <= 10 * 60 * 1000;
+}
+function usableHandicap(m: TradingMatch) {
+  return m.handicapVerified === true && Number.isFinite(m.handicap) &&
+    m.handicap < 0 && m.handicapHomeOdd != null && m.handicapAwayOdd != null &&
+    Number.isFinite(m.handicapHomeOdd) && Number.isFinite(m.handicapAwayOdd);
+}
+function mergeMarketCoverage(primary: TradingMatch[], secondary: TradingMatch[]) {
+  const used = new Set<number>();
+  const matches = primary.map(original => {
+    const i = secondary.findIndex((candidate, index) => !used.has(index) && sameFixture(original, candidate));
+    if (i < 0) return original;
+    used.add(i);
+    const backup = secondary[i];
+    if (usableHandicap(original) || !usableHandicap(backup)) return original;
+    // Preserve all original Bet365 goal/corner prices; borrow only validated FT AH.
+    const patched: TradingMatch = {
+      ...original,
+      favourite: backup.favourite,
+      handicap: backup.handicap,
+      handicapVerified: true,
+      handicapHomeOdd: backup.handicapHomeOdd,
+      handicapAwayOdd: backup.handicapAwayOdd,
+      sourceSummary: `${original.sourceSummary ?? '5Dollar'} · FT AH: ${backup.sourceSummary ?? 'API-Football'} (supplement)`,
+    };
+    return { ...patched, ...evaluateV1(patched) };
+  });
+  for (let i = 0; i < secondary.length; i++) {
+    if (!used.has(i) && !primary.some(m => sameFixture(m, secondary[i]))) matches.push(secondary[i]);
+  }
+  return matches;
+}
 
 async function readCache(): Promise<{ payload: Payload; expiresAt: number } | null> {
   try {
@@ -77,44 +122,45 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
 
-  if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY) {
+  if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY && !process.env.API_FOOTBALL_KEY) {
     return NextResponse.json({
-      ...(cached?.payload ?? {
-        dataSource: '5DollarFootballAPI',
-        mode: 'STRUCTURED_PROVIDER',
-        matches: [],
-        fixturesFound: 0,
-        fixturesVerified: 0,
-        webCallsThisScan: 0,
-        estimatedCostUsd: 0,
-        updatedAt: new Date().toISOString(),
-      }),
-      providerStatus: 'FIVE_DOLLAR_KEY_MISSING',
+      providerStatus: 'PROVIDER_KEYS_MISSING',
+      dataSource: '5DollarFootballAPI + API-Football',
+      mode: 'STRUCTURED_PROVIDER',
+      matches: [],
       scanStatus: 'BLOCKED',
-      cacheStatus: cached ? 'STALE' : 'HIT',
-      message: '5DollarFootballAPI key is not configured. API-Football remains reserved for HT/FT verification.',
+      fixturesFound: 0,
+      fixturesVerified: 0,
+      webCallsThisScan: 0,
+      estimatedCostUsd: 0,
+      updatedAt: new Date().toISOString(),
+      cacheStatus: cached ? 'STALE' : 'MISS',
+      message: 'Both provider keys are missing.',
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 
   try {
-    let scanResult;
-    let dataSource = '5DollarFootballAPI · Bet365';
-    let providerNote = '';
-
-    try {
-      scanResult = await getFiveDollarScan();
-    } catch (fiveDollarError) {
-      if (!process.env.API_FOOTBALL_KEY) throw fiveDollarError;
-
-      scanResult = await getApiFootballScan();
-      dataSource = 'API-Football fallback';
-      providerNote = fiveDollarError instanceof Error
-        ? `5Dollar unavailable (${fiveDollarError.message}); using API-Football fallback.`
-        : '5Dollar unavailable; using API-Football fallback.';
+    // Independent providers: a partial success must not prevent the other from filling gaps.
+    const [five, football] = await Promise.allSettled([
+      process.env.FIVE_DOLLAR_FOOTBALL_API_KEY ? getFiveDollarScan() : Promise.reject(new Error('5Dollar key missing')),
+      process.env.API_FOOTBALL_KEY ? getApiFootballScan() : Promise.reject(new Error('API-Football key missing')),
+    ]);
+    if (five.status === 'rejected' && football.status === 'rejected') {
+      throw new Error(`Both scans failed: 5Dollar (${String(five.reason)}); API-Football (${String(football.reason)})`);
     }
-
-    const all = scanResult.matches;
-    const qualified = all.filter(m => m.state === 'QUALIFIED');
+    const first = five.status === 'fulfilled' ? five.value : null;
+    const second = football.status === 'fulfilled' ? football.value : null;
+    const combined = mergeMarketCoverage(first?.matches ?? [], second?.matches ?? []);
+    const qualified = combined.filter(m => m.state === 'QUALIFIED');
+    const dataSource = [first && '5DollarFootballAPI', second && 'API-Football'].filter(Boolean).join(' + ');
+    const providerNote = [
+      first ? '5Dollar OK' : `5Dollar unavailable: ${String(five.status === 'rejected' ? five.reason : '')}`,
+      second ? 'API-Football OK' : `API-Football unavailable: ${String(football.status === 'rejected' ? football.reason : '')}`,
+    ].join('; ');
+    // Audit numbers are provider-specific; never pretend counts are unique across provider IDs.
+    const fixturesFound = Math.max(first?.fixturesFound ?? 0, second?.fixturesFound ?? 0);
+    const fixturesVerified = combined.length;
+    const missingMarketCount = Math.max(0, fixturesFound - fixturesVerified);
     const expiresAt = Date.now() + CACHE_MS;
 
     const payload: Payload = {
@@ -122,21 +168,17 @@ export async function GET(request: Request) {
       dataSource,
       mode: 'STRUCTURED_PROVIDER',
       matches: qualified,
-      scanStatus: scanResult.missingMarketCount > 0 ? 'PARTIAL' : 'COMPLETE',
-      fixturesFound: scanResult.fixturesFound,
-      fixturesVerified: scanResult.fixturesWithCompleteMarkets,
+      scanStatus: missingMarketCount > 0 || !first || !second ? 'PARTIAL' : 'COMPLETE',
+      fixturesFound,
+      fixturesVerified,
       qualifiedMatches: qualified.length,
-      missingMarketCount: scanResult.missingMarketCount,
-      marketCoverage: `${scanResult.fixturesWithCompleteMarkets}/${scanResult.fixturesFound} fixtures have complete Bet365 goal+corner data`,
+      missingMarketCount,
+      marketCoverage: `Provider scans: 5Dollar ${first?.fixturesWithCompleteMarkets ?? 'unavailable'}/${first?.fixturesFound ?? 'unavailable'}; API-Football ${second?.fixturesWithCompleteMarkets ?? 'unavailable'}/${second?.fixturesFound ?? 'unavailable'}. Cross-provider counts are not unique.`,
       webCallsThisScan: 0,
       estimatedCostUsd: 0,
       updatedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
-      message: providerNote || (
-        scanResult.missingMarketCount > 0
-          ? `5Dollar 24h scan completed; ${scanResult.missingMarketCount} fixture(s) lack complete Bet365 line/price data.`
-          : '5Dollar Bet365 24h line/price scan completed with no GPT web search.'
-      ),
+      message: providerNote,
       cacheStatus: 'MISS',
       nextRefreshAt: new Date(expiresAt).toISOString(),
     };
