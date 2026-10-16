@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
 import { League, MethodOverallStats, MethodStats, TradingMatch } from '../lib/types';
+import { mergeWatchlistOdds, sanitizeOddsSnapshot } from '../lib/watchlistOdds';
 import { buildH2Predictions, methodMatchStatus } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
@@ -48,33 +49,13 @@ function isTrustedLegacyFt(row: TradingMatch) {
   return !(sh === 0 && sa === 0 && ch === 0 && ca === 0);
 }
 
-function sanitizeLegacyProviderMatch(row: TradingMatch): TradingMatch {
-  const summary = typeof row.sourceSummary === 'string' ? row.sourceSummary : '';
-  const providerRecord = summary.startsWith('API-Football ·');
-  if (!providerRecord) return row;
-
-  // Old client snapshots may contain repeated invalidation strings. Remove only
-  // these annotations; preserve the original provider provenance.
-  const cleaned = summary
-    .replace(/\\s*·\\s*HANDICAP INVALIDATED — SAFEv6 rescan required/g, '')
-    .trim();
-  // SAFEv9 is the current verified AH parser. Earlier verified versions are
-  // deliberately not trusted for HT decisions.
-  const trusted = /SAFEv(?:9|[1-9][0-9]+) AH verified\\b/.test(cleaned);
-  return {
-    ...row,
-    handicapVerified: trusted && row.handicapVerified === true,
-    favouriteCoveringHandicap: trusted ? row.favouriteCoveringHandicap : false,
-    favouriteLosing: trusted ? row.favouriteLosing : false,
-    sourceSummary: cleaned,
-  };
-}
-
 function readSaved(key: string): TradingMatch[] {
   try {
     const rows = JSON.parse(localStorage.getItem(key) || '[]') as TradingMatch[];
     return Array.isArray(rows)
-      ? rows.filter(isTrustedLegacyFt).map(sanitizeLegacyProviderMatch)
+      ? key === STAR_KEY
+          ? mergeWatchlistOdds(rows.filter(isTrustedLegacyFt).map(sanitizeOddsSnapshot), [])
+          : rows.filter(isTrustedLegacyFt).map(sanitizeOddsSnapshot)
       : [];
   } catch {
     return [];
@@ -332,7 +313,7 @@ export default function Home() {
     try {
       const res = await fetch('/api/scan', { cache: 'no-store' });
       const data = await res.json();
-      const incoming = (data.matches ?? []) as TradingMatch[];
+      const incoming = ((data.matches ?? []) as TradingMatch[]).map(sanitizeOddsSnapshot);
 
       setMatches(incoming);
       setProviderStatus(data.providerStatus ?? data.mode ?? '');
@@ -348,13 +329,9 @@ export default function Home() {
 
       if (incoming.length) {
         setStarred(prev => {
-          const merged = new Map<string, TradingMatch>();
-          for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
-          for (const m of incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))) {
-            merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
-          }
-          const next = Array.from(merged.values()).sort(
-            (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
+          const next = mergeWatchlistOdds(
+            prev.filter(m => m.status !== 'FT' && !isWatchExpired(m)),
+            incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))
           );
           localStorage.setItem(STAR_KEY, JSON.stringify(next));
           return next;
@@ -366,8 +343,9 @@ export default function Home() {
   }
 
   function saveStarred(next: TradingMatch[]) {
-    setStarred(next);
-    localStorage.setItem(STAR_KEY, JSON.stringify(next));
+    const clean = mergeWatchlistOdds(next, []);
+    setStarred(clean);
+    localStorage.setItem(STAR_KEY, JSON.stringify(clean));
   }
 
   function saveHistory(next: TradingMatch[]) {
@@ -376,22 +354,6 @@ export default function Home() {
     ).slice(0, 150);
     setHistory(deduped);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
-  }
-
-  function mergeStarred(incoming: TradingMatch[], current: TradingMatch[]) {
-    const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
-    const merged = new Map<string, TradingMatch>();
-
-    for (const m of current.filter(m => !isWatchExpired(m))) merged.set(m.id, m);
-    for (const m of autoPicks.filter(m => !isWatchExpired(m))) {
-      merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
-    }
-
-    const next = Array.from(merged.values()).sort(
-      (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
-    );
-
-    saveStarred(next);
   }
 
   async function scanUpcoming() {
@@ -413,7 +375,7 @@ export default function Home() {
         data = JSON.parse(recoveryText);
       }
 
-      const incoming = (data.matches ?? []) as TradingMatch[];
+      const incoming = ((data.matches ?? []) as TradingMatch[]).map(sanitizeOddsSnapshot);
 
       setMatches(incoming);
       setProviderStatus(data.providerStatus ?? data.mode ?? '');
@@ -427,14 +389,9 @@ export default function Home() {
 
       if (incoming.length) {
         setStarred(prev => {
-          const autoPicks = incoming.filter(m => m.state === 'QUALIFIED');
-          const merged = new Map<string, TradingMatch>();
-          for (const m of prev.filter(m => m.status !== 'FT' && !isWatchExpired(m))) merged.set(m.id, m);
-          for (const m of autoPicks.filter(m => m.status !== 'FT' && !isWatchExpired(m))) {
-            merged.set(m.id, richerLifecycleMatch(merged.get(m.id), m));
-          }
-          const next = Array.from(merged.values()).sort(
-            (a, b) => new Date(a.kickoff ?? 0).getTime() - new Date(b.kickoff ?? 0).getTime()
+          const next = mergeWatchlistOdds(
+            prev.filter(m => m.status !== 'FT' && !isWatchExpired(m)),
+            incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))
           );
           localStorage.setItem(STAR_KEY, JSON.stringify(next));
           return next;
@@ -450,8 +407,12 @@ export default function Home() {
             : data.fixturesFound != null
               ? ` · ${data.fixturesVerified ?? 0}/${data.fixturesFound} complete markets`
               : '';
-          const partial = data.scanStatus === 'PARTIAL' ? ' · PARTIAL' : ' · COMPLETE';
-          setNotice(`New provider scan${partial}${coverage} · ${incoming.length} qualified`);
+          const status = data.scanStatus === 'COMPLETE' ? 'COMPLETE' : 'PARTIAL';
+          const ah = data.handicapVerifiedCount == null ? '' : ` · FT AH ${data.handicapVerifiedCount}/${incoming.length} verified`;
+          const label = data.cacheStatus === 'STALE' || data.providerStatus !== 'CONNECTED'
+            ? 'Saved snapshot (not a fresh scan)'
+            : 'Provider scan';
+          setNotice(`${label} · ${status}${coverage}${ah} · ${incoming.length} qualified`);
         }
       } else {
         const status = data.providerStatus ?? data.mode ?? '';
