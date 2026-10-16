@@ -8,6 +8,10 @@ const LEAGUES: Record<League, number> = {
   Allsvenskan: 113,
   'Liga MX': 262,
   'Brazil Serie A': 71,
+  Eredivisie: 88,
+  'Swiss Super League': 207,
+  'Danish Superliga': 119,
+  Eliteserien: 103,
 };
 
 type ApiResponse<T> = {
@@ -74,8 +78,13 @@ function numberFrom(value: unknown): number | null {
   return nums[nums.length - 1];
 }
 
-function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: string; main?: boolean | null }> = []): number | null {
-  const byLine = new Map<number, { over?: number; under?: number; mainOver?: boolean; mainUnder?: boolean }>();
+function balancedQuote(values: Array<{ value?: string; odd?: string; handicap?: string; main?: boolean | null }> = []) {
+  const byLine = new Map<number, {
+    over?: number;
+    under?: number;
+    mainOver?: boolean;
+    mainUnder?: boolean;
+  }>();
 
   for (const item of values) {
     const text = String(item.value ?? '');
@@ -96,22 +105,20 @@ function balancedLine(values: Array<{ value?: string; odd?: string; handicap?: s
     byLine.set(key, slot);
   }
 
-  // If the provider explicitly marks a main total, use it.
-  for (const [line, pair] of byLine) {
-    if (pair.over != null && pair.under != null && pair.mainOver && pair.mainUnder) return line;
-  }
-
-  // Pre-match totals do not always carry a main flag. For goals/corners only,
-  // choose the balanced Over/Under line. These are V1 qualification markets.
-  let best: { line: number; score: number } | null = null;
+  let best: { line: number; over: number; under: number; score: number } | null = null;
   for (const [line, pair] of byLine) {
     if (pair.over == null || pair.under == null) continue;
-    const score = Math.abs(pair.over - pair.under) +
+    const bothMain = pair.mainOver && pair.mainUnder;
+    const score =
+      (bothMain ? -5 : 0) +
+      Math.abs(pair.over - pair.under) +
       Math.abs(pair.over - 1.9) * 0.25 +
       Math.abs(pair.under - 1.9) * 0.25;
-    if (!best || score < best.score) best = { line, score };
+    if (!best || score < best.score) {
+      best = { line, over: pair.over, under: pair.under, score };
+    }
   }
-  return best?.line ?? null;
+  return best ? { line: best.line, over: best.over, under: best.under } : null;
 }
 
 function moneylineFavourite(bets: any[]): 'HOME' | 'AWAY' | null {
@@ -146,41 +153,65 @@ function sideFromValue(value: unknown): 'HOME' | 'AWAY' | null {
 function parseHandicap(
   values: Array<{ value?: string; odd?: string | number; handicap?: string | number; main?: boolean | null }> = [],
   moneylineFav: 'HOME' | 'AWAY' | null
-): { favourite: 'HOME' | 'AWAY'; handicap: number } | null {
-  type Quote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number | null; main: boolean };
+): {
+  favourite: 'HOME' | 'AWAY';
+  handicap: number;
+  homeOdd: number;
+  awayOdd: number;
+} | null {
+  type Quote = { side: 'HOME' | 'AWAY'; handicap: number; odd: number; main: boolean };
   const quotes: Quote[] = [];
 
   for (const item of values) {
     const side = sideFromValue(item.value);
     const handicap = numberFrom(item.handicap ?? item.value);
     const odd = Number(item.odd);
-    if (!side || handicap === null) continue;
-    quotes.push({
-      side,
-      handicap,
-      odd: Number.isFinite(odd) ? odd : null,
-      main: item.main === true,
-    });
+    if (!side || handicap === null || !Number.isFinite(odd)) continue;
+    quotes.push({ side, handicap, odd, main: item.main === true });
   }
 
-  // API-Football pre-match odds can expose several alternative Asian lines and
-  // does not reliably identify the sportsbook's displayed main line.
-  // Only accept a handicap when BOTH sides are explicitly marked main.
-  const home = quotes.find(q => q.side === 'HOME' && q.main);
-  const away = quotes.find(q => q.side === 'AWAY' && q.main);
-  if (!home || !away) return null;
-  if (Math.abs(Math.abs(home.handicap) - Math.abs(away.handicap)) > 0.001) return null;
+  const pairs: Array<{
+    home: Quote;
+    away: Quote;
+    favourite: 'HOME' | 'AWAY';
+    score: number;
+  }> = [];
 
-  const favourite =
-    home.handicap < 0 && away.handicap > 0 ? 'HOME'
-    : away.handicap < 0 && home.handicap > 0 ? 'AWAY'
-    : null;
-  if (!favourite) return null;
-  if (moneylineFav && moneylineFav !== favourite) return null;
+  for (const home of quotes.filter(q => q.side === 'HOME')) {
+    for (const away of quotes.filter(q => q.side === 'AWAY')) {
+      if (Math.abs(home.handicap + away.handicap) > 0.001) continue;
+      if (home.handicap === 0 && away.handicap === 0) continue;
+
+      const favourite: 'HOME' | 'AWAY' = home.handicap < 0 ? 'HOME' : 'AWAY';
+      if (moneylineFav && moneylineFav !== favourite) continue;
+
+      // Prefer true two-way main spreads with prices close to the user's normal
+      // Asian range: decimal 1.80-2.00 (HK 0.80-1.00). Allow a small safety band.
+      const inBand =
+        home.odd >= 1.75 && home.odd <= 2.05 &&
+        away.odd >= 1.75 && away.odd <= 2.05;
+      if (!inBand) continue;
+
+      const bothMain = home.main && away.main;
+      const score =
+        (bothMain ? -5 : 0) +
+        Math.abs(home.odd - away.odd) +
+        Math.abs(home.odd - 1.9) +
+        Math.abs(away.odd - 1.9);
+
+      pairs.push({ home, away, favourite, score });
+    }
+  }
+
+  pairs.sort((a, b) => a.score - b.score);
+  const best = pairs[0];
+  if (!best) return null;
 
   return {
-    favourite,
-    handicap: favourite === 'HOME' ? home.handicap : away.handicap,
+    favourite: best.favourite,
+    handicap: best.favourite === 'HOME' ? best.home.handicap : best.away.handicap,
+    homeOdd: best.home.odd,
+    awayOdd: best.away.odd,
   };
 }
 
@@ -195,23 +226,29 @@ function parseBookmakerOdds(bookmaker: any) {
   const cornersBet = bets.find((b: any) => /corner/i.test(b?.name ?? '') && /over|under|total/i.test(b?.name ?? '') && !/home|away|half|team/i.test(b?.name ?? ''));
   const handicapBet = bets.find((b: any) => /asian handicap/i.test(b?.name ?? '') && !/half/i.test(b?.name ?? ''));
 
-  const goalLine = balancedLine(goalsBet?.values);
-  const cornerLine = balancedLine(cornersBet?.values);
-  if (goalLine === null || cornerLine === null) return null;
+  const goal = balancedQuote(goalsBet?.values);
+  const corner = balancedQuote(cornersBet?.values);
+  if (!goal || !corner) return null;
 
   const marketFavourite = moneylineFavourite(bets);
   const handicap = parseHandicap(handicapBet?.values, marketFavourite);
   const favourite: 'HOME' | 'AWAY' = handicap?.favourite ?? 'HOME';
 
   return {
-    goalLine,
-    cornerLine,
+    goalLine: goal.line,
+    cornerLine: corner.line,
+    goalOverOdd: goal.over,
+    goalUnderOdd: goal.under,
+    cornerOverOdd: corner.over,
+    cornerUnderOdd: corner.under,
     favourite,
     handicap: handicap?.handicap ?? 0,
     handicapVerified: Boolean(handicap),
+    handicapHomeOdd: handicap?.homeOdd ?? null,
+    handicapAwayOdd: handicap?.awayOdd ?? null,
     bookmakerId: Number(bookmaker.id),
     bookmakerName: String(bookmaker.name ?? 'Unknown bookmaker'),
-    oddsParserVersion: 'SAFEv8',
+    oddsParserVersion: 'SAFEv9',
   };
 }
 
@@ -367,13 +404,19 @@ function fixtureToBase(
     cornersAway: corners.away,
     prematchCornerLine: odds.cornerLine,
     prematchGoalLine: odds.goalLine,
+    prematchCornerOverOdd: odds.cornerOverOdd,
+    prematchCornerUnderOdd: odds.cornerUnderOdd,
+    prematchGoalOverOdd: odds.goalOverOdd,
+    prematchGoalUnderOdd: odds.goalUnderOdd,
     favourite: odds.favourite,
     handicap: odds.handicap,
     handicapVerified: odds.handicapVerified,
+    handicapHomeOdd: odds.handicapHomeOdd,
+    handicapAwayOdd: odds.handicapAwayOdd,
     favouriteCoveringHandicap: false,
     favouriteLosing,
     ftGoalOverClear: false,
-    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv8 AH verified' : 'SAFEv8 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
+    sourceSummary: `API-Football · ${odds.bookmakerName} #${odds.bookmakerId} · ${odds.sourceTier === 'BET365' ? 'Bet365 preferred' : 'fallback bookmaker'} · ${odds.handicapVerified ? 'SAFEv9 AH verified' : 'SAFEv9 AH unverified'} · pre-match lines · fixture ${fixture.fixture?.id ?? ''}`,
     sourceUrls: [],
   };
 }
@@ -399,7 +442,7 @@ export type ApiFootballScanResult = {
 export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
   const season = Number(process.env.API_FOOTBALL_SEASON ?? new Date().getFullYear());
   const now = Date.now();
-  const horizonMs = Number(process.env.PREMATCH_SCAN_HOURS ?? 72) * 60 * 60 * 1000;
+  const horizonMs = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24))) * 60 * 60 * 1000;
   const horizon = now + horizonMs;
 
   const leagueResults = await Promise.all(
