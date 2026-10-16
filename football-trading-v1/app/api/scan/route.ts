@@ -34,8 +34,8 @@ type Payload = {
 
 // Fixture IDs differ between providers. Match only strongly identified, nearby kickoff fixtures.
 function matchKey(m: TradingMatch) {
-  const norm = (name: string) => name.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')
-    .replace(/\\b(fc|cf|sc|afc|club|football)\\b/g, '').replace(/[^a-z0-9]/g, '');
+  const norm = (name: string) => name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(fc|cf|sc|afc|club|football)\b/g, '').replace(/[^a-z0-9]/g, '');
   return `${m.league}:${norm(m.home)}:${norm(m.away)}`;
 }
 function sameFixture(a: TradingMatch, b: TradingMatch) {
