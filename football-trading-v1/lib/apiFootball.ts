@@ -1,5 +1,6 @@
 import { League, TradingMatch } from './types';
 import { evaluateV1 } from './rules';
+import { isFtAhPriorityLeague } from './ftAhPriority';
 
 const BASE_URL = 'https://v3.football.api-sports.io';
 
@@ -314,7 +315,7 @@ async function resolveBet365BookmakerId() {
   return id;
 }
 
-async function fetchFixtureOdds(fixtureId: number, ahBudget: { remaining: number }) {
+async function fetchFixtureOdds(fixtureId: number, ahBudget: { remaining: number }, priorityAh: boolean) {
   const bookmakerId = await resolveBet365BookmakerId();
   const cacheKey = `odds-v10-fixture-${fixtureId}`;
   const cached = readCache<any>(cacheKey);
@@ -328,7 +329,7 @@ async function fetchFixtureOdds(fixtureId: number, ahBudget: { remaining: number
 
   // Keep Bet365 goals + corners intact, but don't stop looking just because
   // those two markets are complete while the FT Asian Handicap is absent.
-  if (bet365Parsed?.handicapVerified) {
+  if (bet365Parsed && (bet365Parsed.handicapVerified || !priorityAh)) {
     const result = { ...bet365Parsed, sourceTier: 'BET365' as const };
     writeCache(cacheKey, result, 3 * 60 * 60 * 1000);
     return result;
@@ -547,7 +548,7 @@ export async function getApiFootballScan(): Promise<ApiFootballScanResult> {
             };
           }
 
-          const odds = await fetchFixtureOdds(fixtureId, ahBudget);
+          const odds = await fetchFixtureOdds(fixtureId, ahBudget, isFtAhPriorityLeague(league));
           if (!odds) {
             return {
               match: null,
