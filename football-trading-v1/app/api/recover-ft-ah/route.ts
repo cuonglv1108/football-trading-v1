@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 
 const LIMIT_FILE = process.env.V1_AH_LOOKUP_BUDGET_FILE || '/data/v1-ft-ah-lookup-budget.json';
 const WINDOW_MS = 24 * 60 * 60 * 1000;
-const MAX_CALLS_PER_DAY = 20;
+const MAX_CALLS_PER_DAY = 32;
 const COOLDOWN_MS = 60_000;
 let running = false;
 
