@@ -39,7 +39,8 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const homeHandicap = match.handicapVerified === true
     ? (match.favourite === 'HOME' ? match.handicap : -match.handicap)
     : match.handicapLineVerified === true ? match.prematchHandicapLine ?? null : null;
-  const handicapText = homeHandicap == null ? 'FT AH MISSING' :
+  const handicapText = homeHandicap == null
+    ? 'FT AH MISSING' + (match.handicapLookupStatus ? ' · ' + match.handicapLookupStatus.replace(/_/g, ' ') + ' (API-Football)' : '') :
     `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap}` +
     (pricedHandicap ? ` · H @ ${hkOdd(match.handicapHomeOdd)} · A @ ${hkOdd(match.handicapAwayOdd)}` :
       ' · LINE ONLY · HOME/AWAY PRICES MISSING');
