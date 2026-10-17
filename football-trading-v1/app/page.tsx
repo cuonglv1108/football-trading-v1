@@ -414,7 +414,7 @@ export default function Home() {
           ...recorded,
           prematchHandicapLine: q.line,
           handicapLineVerified: true,
-          handicapLineSource: q.source ?? '5DollarFootballAPI dedicated FT Asian Handicap',
+          handicapLineSource: q.source ?? 'API-Football FT Asian Handicap',
           ...(priced ? {
             handicapVerified: true,
             handicap: -Math.abs(q.line),
@@ -435,7 +435,7 @@ export default function Home() {
         return next;
       });
       const statuses = (data.lookups ?? []) as Array<{status: string}>;
-      const reasons = ['NO_FIXTURE', 'AMBIGUOUS_FIXTURE', 'NO_MARKET', 'PROVIDER_ERROR']
+      const reasons = ['NO_FIXTURE', 'AMBIGUOUS_FIXTURE', 'AMBIGUOUS_MARKET', 'NO_MARKET', 'PROVIDER_ERROR']
         .map(key => {
           const count = statuses.filter(m => m.status === key).length;
           return count ? key.replace(/_/g, ' ') + ': ' + count : '';
