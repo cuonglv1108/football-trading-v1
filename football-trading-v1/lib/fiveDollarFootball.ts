@@ -427,7 +427,7 @@ function extractShortAhLines(fixtures: FiveDollarFixture[]): FiveDollarAhLine[] 
 export type FtAhLookupTarget = Pick<TradingMatch, 'id' | 'league' | 'home' | 'away' | 'kickoff' | 'status'>;
 export type FtAhLookupResult = {
   id: string;
-  status: 'FOUND_PRICED' | 'FOUND_LINE' | 'NO_FIXTURE' | 'AMBIGUOUS_FIXTURE' | 'NO_MARKET' | 'PROVIDER_ERROR';
+  status: 'FOUND_PRICED' | 'FOUND_LINE' | 'NO_FIXTURE' | 'AMBIGUOUS_FIXTURE' | 'NO_MARKET' | 'AMBIGUOUS_MARKET' | 'PROVIDER_ERROR';
   line?: number;
   homeOdd?: number | null;
   awayOdd?: number | null;
@@ -524,7 +524,21 @@ export async function getFiveDollarAhLinesOnly(): Promise<FiveDollarAhLine[]> {
   return extractShortAhLines(fixtures);
 }
 
+let cachedPlan: { value: string; expires: number } | null = null;
+async function checkFiveDollarPlan(): Promise<string> {
+  if (cachedPlan && cachedPlan.expires > Date.now()) return cachedPlan.value;
+  const status = await apiGet<{ plan?: string }>('/status');
+  const plan = String(status.data?.plan ?? 'unknown').toLowerCase();
+  cachedPlan = { value: plan, expires: Date.now() + 30 * 60 * 1000 };
+  return plan;
+}
+
 export async function getFiveDollarScan(): Promise<FiveDollarScanResult> {
+  // This app targets Brazil/Sweden/Mexico/MLS (outside 5Dollar Free coverage).
+  // Detect the current plan once per 30m before issuing Pro-only listing calls.
+  if (await checkFiveDollarPlan() === 'free') {
+    throw new Error('5Dollar Free plan does not cover V1 target leagues. API-Football remains the odds source.');
+  }
   const now = Math.floor(Date.now() / 1000);
   const horizonHours = Math.min(24, Math.max(1, Number(process.env.PREMATCH_SCAN_HOURS ?? 24)));
   const end = now + horizonHours * 60 * 60;

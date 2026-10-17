@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getDedicatedFtAsianForMatches, type FtAhLookupTarget } from '../../../lib/fiveDollarFootball';
+import type { FtAhLookupTarget } from '../../../lib/fiveDollarFootball';
+import { getApiFootballDedicatedFtAh } from '../../../lib/apiFootballAhRecovery';
+import { isFtAhPriorityLeague, sortFtAhPriority } from '../../../lib/ftAhPriority';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -19,13 +21,9 @@ function inputMatch(value: unknown): FtAhLookupTarget | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   const league = String(v.league ?? '');
-  const leagues = [
-    'MLS', 'Allsvenskan', 'Brazil Serie A', 'Liga MX',
-    'Eredivisie', 'Swiss Super League', 'Danish Superliga', 'Eliteserien',
-  ];
   const kickoff = String(v.kickoff ?? '');
   const millis = Date.parse(kickoff);
-  if (!leagues.includes(league) ||
+  if (!isFtAhPriorityLeague(league) ||
       typeof v.id !== 'string' || v.id.length > 100 || !v.id ||
       typeof v.home !== 'string' || v.home.length > 100 || !v.home ||
       typeof v.away !== 'string' || v.away.length > 100 || !v.away ||
@@ -60,8 +58,8 @@ async function saveLimits(state: LimitState) {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.FIVE_DOLLAR_FOOTBALL_API_KEY) {
-    return reply({ error: 'FIVE_DOLLAR_FOOTBALL_API_KEY is not configured' }, 503);
+  if (!process.env.API_FOOTBALL_KEY) {
+    return reply({ error: 'API_FOOTBALL_KEY is not configured; no AH request made' }, 503);
   }
   let body: unknown;
   try { body = await request.json(); }
@@ -69,9 +67,9 @@ export async function POST(request: Request) {
   const raw = (body as { matches?: unknown })?.matches;
   const sourceRows = Array.isArray(raw) ? raw.slice(0, 30) : [];
   const matches = sourceRows.map(inputMatch).filter((m): m is FtAhLookupTarget => m != null);
-  const unique = [...new Map(matches.map(m => [m.id, m])).values()].slice(0, 4);
+  const unique = sortFtAhPriority([...new Map(matches.map(m => [m.id, m])).values()]).slice(0, 4);
   if (!unique.length) {
-    return reply({ message: 'No upcoming saved PRE fixtures eligible for FT Asian Handicap recovery.',
+    return reply({ message: 'No upcoming Brazil Serie A, Allsvenskan, Liga MX or MLS matches eligible for AH recovery.',
       attempted: 0, lookups: [], fixturePages: 0, marketRequests: 0 });
   }
   if (running) return reply({ error: 'A FT AH-only lookup is already running. No new requests started.' }, 429);
@@ -83,15 +81,15 @@ export async function POST(request: Request) {
       return reply({ error: 'FT AH-only lookup is cooling down (1 minute). No API requests made.',
         retryAfterSeconds: Math.ceil((COOLDOWN_MS - (now - limits.lastAt)) / 1000) }, 429);
     }
-    // Conservatively reserve one fixture-list page plus 4 odds lookups, including
-    // any retries; this protects against repeated billable calls.
-    if (limits.attempts.length + 8 > MAX_CALLS_PER_DAY) {
+    // Conservatively reserve up to four API-Football calls per selected match:
+    // fixture verification, fixture search if needed, and at most 2 odds pages.
+    if (limits.attempts.length + unique.length * 4 > MAX_CALLS_PER_DAY) {
       return reply({ error: 'FT AH-only daily provider request cap reached. No API requests made.' }, 429);
     }
     limits.lastAt = now;
-    limits.attempts.push(...Array(8).fill(now));
+    limits.attempts.push(...Array(unique.length * 4).fill(now));
     await saveLimits(limits);
-    const result = await getDedicatedFtAsianForMatches(unique);
+    const result = await getApiFootballDedicatedFtAh(unique);
     const priced = result.lookups.filter(r => r.status === 'FOUND_PRICED').length;
     const lineOnly = result.lookups.filter(r => r.status === 'FOUND_LINE').length;
     return reply({
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
       lineOnly,
       message: 'FT AH-only check: ' + priced + ' two-way priced, ' + lineOnly +
         ' line-only, ' + (unique.length - priced - lineOnly) +
-        ' missing/unsupported. Existing Goal/Corner odds unchanged.',
+        ' missing/unsupported. API-Football used for Brazil Serie A, Allsvenskan, Liga MX, MLS. Existing Goal/Corner odds unchanged.',
     });
   } catch (error) {
     return reply({
