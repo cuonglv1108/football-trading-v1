@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDedicatedBet365Ah } from '../lib/ftAsianRecovery.ts';
-import { mergeWatchlistOdds } from '../lib/watchlistOdds.ts';
+import { mergeWatchlistOdds, sanitizeOddsSnapshot } from '../lib/watchlistOdds.ts';
 
 test('reads dedicated market=asian with current string without price fabrication', () => {
   const data = { fixture_id: 422841891, odds: {
@@ -61,4 +61,16 @@ test('dedicated AH saved on device remains after stale scan with missing AH', ()
   assert.equal(merged.prematchHandicapLine,-0.75);
   assert.equal(merged.prematchGoalOverOdd,1.9);
   assert.equal(merged.handicapVerified,false);
+});
+
+test('independent priced AH survives an old SAFE v8 Goals/Corners source', () => {
+  const old = {
+    sourceSummary:'API-Football · Bet365 #8 · SAFEv8 AH unverified',
+    handicapVerified:true,
+    handicapLineVerified:true,
+    handicapHomeOdd:1.92,
+    handicapAwayOdd:1.96,
+    handicapLineSource:'5DollarFootballAPI · Bet365 dedicated FT Asian Handicap (two-way odds)',
+  };
+  assert.equal(sanitizeOddsSnapshot(old).handicapVerified,true);
 });
