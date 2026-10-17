@@ -5,8 +5,11 @@ const INVALIDATION = /\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan req
 export function sanitizeOddsSnapshot(row: TradingMatch): TradingMatch {
   const source = typeof row.sourceSummary === 'string' ? row.sourceSummary : '';
   const cleaned = source.replace(INVALIDATION, '').trim();
+  const independentPriced = row.handicapLineVerified === true &&
+    (row.handicapLineSource ?? '').includes('Bet365 dedicated FT Asian Handicap (two-way odds)') &&
+    row.handicapHomeOdd != null && row.handicapAwayOdd != null;
   const legacyApiFootball = cleaned.startsWith('API-Football ·') &&
-    !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned);
+    !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned) && !independentPriced;
 
   if (!legacyApiFootball && source === cleaned) return row;
   return {
