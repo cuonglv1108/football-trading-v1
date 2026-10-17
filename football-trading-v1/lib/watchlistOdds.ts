@@ -6,7 +6,7 @@ export function sanitizeOddsSnapshot(row: TradingMatch): TradingMatch {
   const source = typeof row.sourceSummary === 'string' ? row.sourceSummary : '';
   const cleaned = source.replace(INVALIDATION, '').trim();
   const independentPriced = row.handicapLineVerified === true &&
-    (row.handicapLineSource ?? '').includes('Bet365 dedicated FT Asian Handicap (two-way odds)') &&
+    (/Bet365 dedicated FT Asian Handicap \(two-way odds\)|verified FT Asian Handicap 2-way/.test(row.handicapLineSource ?? '')) &&
     row.handicapHomeOdd != null && row.handicapAwayOdd != null;
   const legacyApiFootball = cleaned.startsWith('API-Football ·') &&
     !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned) && !independentPriced;
@@ -51,7 +51,7 @@ function refreshPreMatchOdds(previous: TradingMatch, fresh: TradingMatch): Tradi
     return previous;
   }
   const keepRecovered = previous.handicapLineVerified === true &&
-    (previous.handicapLineSource ?? '').includes('dedicated FT Asian Handicap') &&
+    (/dedicated FT Asian Handicap|verified FT Asian Handicap 2-way/.test(previous.handicapLineSource ?? '')) &&
     !fresh.handicapVerified && !fresh.handicapLineVerified;
   const ah = keepRecovered ? previous : fresh;
   return {
