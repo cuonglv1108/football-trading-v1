@@ -5,8 +5,11 @@ const INVALIDATION = /\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan req
 export function sanitizeOddsSnapshot(row: TradingMatch): TradingMatch {
   const source = typeof row.sourceSummary === 'string' ? row.sourceSummary : '';
   const cleaned = source.replace(INVALIDATION, '').trim();
+  const independentPriced = row.handicapLineVerified === true &&
+    (row.handicapLineSource ?? '').includes('Bet365 dedicated FT Asian Handicap (two-way odds)') &&
+    row.handicapHomeOdd != null && row.handicapAwayOdd != null;
   const legacyApiFootball = cleaned.startsWith('API-Football ·') &&
-    !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned);
+    !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned) && !independentPriced;
 
   if (!legacyApiFootball && source === cleaned) return row;
   return {
@@ -47,6 +50,10 @@ function refreshPreMatchOdds(previous: TradingMatch, fresh: TradingMatch): Tradi
       previous.researchPhase === 'HT' || previous.researchPhase === 'FT') {
     return previous;
   }
+  const keepRecovered = previous.handicapLineVerified === true &&
+    (previous.handicapLineSource ?? '').includes('dedicated FT Asian Handicap') &&
+    !fresh.handicapVerified && !fresh.handicapLineVerified;
+  const ah = keepRecovered ? previous : fresh;
   return {
     ...previous,
     // Keep local watch/history identity, even if API providers have different fixture IDs.
@@ -58,15 +65,17 @@ function refreshPreMatchOdds(previous: TradingMatch, fresh: TradingMatch): Tradi
     prematchGoalUnderOdd: fresh.prematchGoalUnderOdd ?? null,
     prematchCornerOverOdd: fresh.prematchCornerOverOdd ?? null,
     prematchCornerUnderOdd: fresh.prematchCornerUnderOdd ?? null,
-    favourite: fresh.favourite,
-    handicap: fresh.handicap,
-    handicapVerified: fresh.handicapVerified === true,
-    prematchHandicapLine: fresh.prematchHandicapLine ?? null,
-    handicapLineVerified: fresh.handicapLineVerified === true,
-    handicapLineSource: fresh.handicapLineSource ?? null,
-    handicapHomeOdd: fresh.handicapHomeOdd ?? null,
-    handicapAwayOdd: fresh.handicapAwayOdd ?? null,
-    sourceSummary: fresh.sourceSummary,
+    favourite: ah.favourite,
+    handicap: ah.handicap,
+    handicapVerified: ah.handicapVerified === true,
+    prematchHandicapLine: ah.prematchHandicapLine ?? null,
+    handicapLineVerified: ah.handicapLineVerified === true,
+    handicapLineSource: ah.handicapLineSource ?? null,
+    handicapHomeOdd: ah.handicapHomeOdd ?? null,
+    handicapAwayOdd: ah.handicapAwayOdd ?? null,
+    handicapLookupCheckedAt: previous.handicapLookupCheckedAt,
+    handicapLookupStatus: previous.handicapLookupStatus,
+    sourceSummary: keepRecovered ? (fresh.sourceSummary ?? '') + ' · FT AH: ' + previous.handicapLineSource : fresh.sourceSummary,
     sourceUrls: fresh.sourceUrls,
     state: fresh.state,
     reasons: fresh.reasons,

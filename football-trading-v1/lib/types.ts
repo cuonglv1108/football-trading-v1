@@ -85,6 +85,8 @@ export interface TradingMatch {
   prematchHandicapLine?: number | null;
   handicapLineVerified?: boolean;
   handicapLineSource?: string | null;
+  handicapLookupCheckedAt?: string | null;
+  handicapLookupStatus?: string | null;
   handicapHomeOdd?: number | null;
   handicapAwayOdd?: number | null;
   favouriteCoveringHandicap: boolean;

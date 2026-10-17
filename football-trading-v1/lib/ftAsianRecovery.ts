@@ -40,3 +40,64 @@ export function supplementFtAhLine(rows: TradingMatch[], sourceLines: FiveDollar
     };
   });
 }
+
+
+export type DedicatedAhQuote = {
+  homeLine: number;
+  homeOdd: number | null;
+  awayOdd: number | null;
+  source: string;
+};
+
+// Handles BOTH documented provider response shapes without inferring a spread
+// from 1X2 prices: data.odds.asian_handicap and data.bookmakers[].odds.asian_handicap.
+export function parseDedicatedBet365Ah(data: unknown): DedicatedAhQuote | null {
+  if (!data || typeof data !== 'object') return null;
+  const root = data as Record<string, unknown>;
+  const number = (v: unknown): number | null => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const validLine = (line: number | null) =>
+    line !== null && Math.abs(line) <= 5 && Number.isInteger(line * 4);
+  const validPrice = (v: number | null) => v != null && v > 1 && v <= 20;
+  const extract = (market: unknown): DedicatedAhQuote | null => {
+    if (!market || typeof market !== 'object') return null;
+    const quotes = market as Record<string, unknown>;
+    for (const key of ['closing', 'current', 'opening']) {
+      const raw = quotes[key];
+      const fields = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+      const line = number(fields ? fields.line : raw);
+      if (!validLine(line)) continue;
+      const homeOdd = number(fields?.home);
+      const awayOdd = number(fields?.away);
+      const priced = validPrice(homeOdd) && validPrice(awayOdd);
+      return {
+        homeLine: line!,
+        homeOdd: priced ? homeOdd : null,
+        awayOdd: priced ? awayOdd : null,
+        source: priced
+          ? '5DollarFootballAPI · Bet365 dedicated FT Asian Handicap (two-way odds)'
+          : '5DollarFootballAPI · Bet365 dedicated FT Asian Handicap (line only)',
+      };
+    }
+    return null;
+  };
+
+  // Prefer official bookmaker row when present, since it establishes the source.
+  const books = Array.isArray(root.bookmakers) ? root.bookmakers : [];
+  const bet365 = books.find((b: unknown) => {
+    if (!b || typeof b !== 'object') return false;
+    const row = b as Record<string, unknown>;
+    return String(row.slug ?? '').toLowerCase() === 'bet365' ||
+      /^bet\s*365$/i.test(String(row.name ?? ''));
+  }) as Record<string, unknown> | undefined;
+  const odds = bet365?.odds as Record<string, unknown> | undefined;
+  const bookmakerQuote = extract(odds?.asian_handicap);
+  if (bookmakerQuote) return bookmakerQuote;
+
+  // Dedicated ?market=asian endpoint is documented as data.odds (no bookmakers).
+  const direct = root.odds as Record<string, unknown> | undefined;
+  return extract(direct?.asian_handicap);
+}

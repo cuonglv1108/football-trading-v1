@@ -361,31 +361,88 @@ export default function Home() {
   // It avoids another full Scan 24h and never manufactures two-way prices.
   async function recoverAhOnly() {
     if (ahLoading || loading) return;
+    const pool = mergeWatchlistOdds(
+      starred.filter(m => m.status === 'PRE' && !isWatchExpired(m)),
+      matches.filter(m => m.status === 'PRE' && !isWatchExpired(m))
+    );
+    const pending = pool.filter(m =>
+      m.status === 'PRE' && !m.handicapVerified && !m.handicapLineVerified &&
+      m.kickoff && Date.parse(m.kickoff) > Date.now()
+    ).sort((a, b) =>
+      (Date.parse(a.handicapLookupCheckedAt ?? '') || 0) -
+      (Date.parse(b.handicapLookupCheckedAt ?? '') || 0)
+    ).slice(0, 4);
+    if (!pending.length) {
+      setNotice('No upcoming saved fixtures with missing FT AH. No API requests made.');
+      return;
+    }
     setAhLoading(true);
     try {
-      const res = await fetch('/api/scan?recoverAh=1', { cache: 'no-store' });
+      const res = await fetch('/api/recover-ft-ah', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matches: pending.map(m => ({
+          id: m.id, league: m.league, home: m.home, away: m.away,
+          kickoff: m.kickoff, status: m.status,
+        })) }),
+      });
       const data = await res.json();
       if (!res.ok || data.error) {
-        setNotice(data.error ?? 'No saved scan available for FT AH recovery.');
+        setNotice(data.error ?? 'Dedicated FT AH lookup failed. Current odds unchanged.');
         return;
       }
-      const incoming = ((data.matches ?? []) as TradingMatch[]).map(sanitizeOddsSnapshot);
-      setMatches(incoming);
-      setScanStatus(data.scanStatus ?? '');
-      setScanCoverage(data.marketCoverage ?? '');
-      if (incoming.length) {
-        setStarred(prev => {
-          const next = mergeWatchlistOdds(
-            prev.filter(m => m.status !== 'FT' && !isWatchExpired(m)),
-            incoming.filter(m => m.state === 'QUALIFIED' && m.status !== 'FT' && !isWatchExpired(m))
-          );
-          localStorage.setItem(STAR_KEY, JSON.stringify(next));
-          return next;
-        });
-      }
-      setNotice(data.message ?? 'FT AH recovery finished. Unavailable markets remain missing.');
+      const byId = new Map<string, {
+        id: string; status: string; line?: number; homeOdd?: number | null;
+        awayOdd?: number | null; source?: string;
+      }>((data.lookups ?? []).map((row: any) => [String(row.id), row]));
+      const checkedAt = new Date().toISOString();
+      const update = (m: TradingMatch): TradingMatch => {
+        const q = byId.get(m.id);
+        if (!q || m.status !== 'PRE' || m.handicapVerified || m.handicapLineVerified) return m;
+        const recorded = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status };
+        if (q.line == null || !Number.isFinite(q.line) ||
+            !Number.isInteger(q.line * 4) || Math.abs(q.line) > 5) return recorded;
+        const priced = q.status === 'FOUND_PRICED' &&
+          q.homeOdd != null && q.awayOdd != null &&
+          Number.isFinite(q.homeOdd) && Number.isFinite(q.awayOdd) &&
+          q.homeOdd > 1 && q.awayOdd > 1;
+        const updated: TradingMatch = {
+          ...recorded,
+          prematchHandicapLine: q.line,
+          handicapLineVerified: true,
+          handicapLineSource: q.source ?? '5DollarFootballAPI dedicated FT Asian Handicap',
+          ...(priced ? {
+            handicapVerified: true,
+            handicap: -Math.abs(q.line),
+            favourite: q.line === 0 ? m.favourite : q.line < 0 ? 'HOME' as const : 'AWAY' as const,
+            handicapHomeOdd: q.homeOdd,
+            handicapAwayOdd: q.awayOdd,
+          } : {}),
+          sourceSummary: (m.sourceSummary ?? 'Pre-match') +
+            ' · FT AH: ' + (q.source ?? '5DollarFootballAPI') +
+            (priced ? ' · priced' : ' · line only; prices missing'),
+        };
+        return priced ? { ...updated, ...evaluateV1(updated) } : updated;
+      };
+      setMatches(prev => prev.map(update));
+      setStarred(prev => {
+        const next = prev.map(update);
+        localStorage.setItem(STAR_KEY, JSON.stringify(next));
+        return next;
+      });
+      const statuses = (data.lookups ?? []) as Array<{status: string}>;
+      const reasons = ['NO_FIXTURE', 'AMBIGUOUS_FIXTURE', 'NO_MARKET', 'PROVIDER_ERROR']
+        .map(key => {
+          const count = statuses.filter(m => m.status === key).length;
+          return count ? key.replace(/_/g, ' ') + ': ' + count : '';
+        }).filter(Boolean).join(' · ');
+      setNotice((data.message ?? 'AH-only lookup completed') +
+        (reasons ? ' · ' + reasons : '') +
+        ' · ' + (data.fixturePages ?? 0) + ' fixture list page(s); ' +
+        (data.marketRequests ?? 0) + ' AH market request(s).');
     } catch {
-      setNotice('FT AH recovery request failed; original odds were preserved.');
+      setNotice('FT AH lookup failed; existing Goals/Corners were not altered.');
     } finally {
       setAhLoading(false);
     }
@@ -757,7 +814,7 @@ export default function Home() {
 
       {view !== 'HISTORY' && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, margin: '8px 0 12px' }}>
-          <small style={{ opacity: 0.72 }}>FT AH only · uses provider requests</small>
+          <small style={{ opacity: 0.72 }}>FT AH only · up to 4 matches · may use API quota</small>
           <button className="quickAction" onClick={recoverAhOnly} disabled={ahLoading || loading}>
             {ahLoading ? 'Recovering AH…' : 'Recover FT AH'}
           </button>

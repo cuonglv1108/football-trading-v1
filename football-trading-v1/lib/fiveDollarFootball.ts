@@ -1,5 +1,6 @@
 import { League, TradingMatch } from './types';
 import { evaluateV1 } from './rules';
+import { parseDedicatedBet365Ah, sameAhFixture } from './ftAsianRecovery';
 
 const BASE_URL = 'https://api.5dollarfootballapi.com/v1';
 
@@ -420,6 +421,100 @@ function extractShortAhLines(fixtures: FiveDollarFixture[]): FiveDollarAhLine[] 
     }];
   });
 
+}
+
+
+export type FtAhLookupTarget = Pick<TradingMatch, 'id' | 'league' | 'home' | 'away' | 'kickoff' | 'status'>;
+export type FtAhLookupResult = {
+  id: string;
+  status: 'FOUND_PRICED' | 'FOUND_LINE' | 'NO_FIXTURE' | 'AMBIGUOUS_FIXTURE' | 'NO_MARKET' | 'PROVIDER_ERROR';
+  line?: number;
+  homeOdd?: number | null;
+  awayOdd?: number | null;
+  source?: string;
+  error?: string;
+};
+
+// Free-tier-compatible lookup: fixture list omits include=odds (Pro-only);
+// only matching fixtures request the dedicated asian market. Never touch goal/corner.
+export async function getDedicatedFtAsianForMatches(targets: FtAhLookupTarget[]): Promise<{
+  lookups: FtAhLookupResult[];
+  fixturePages: number;
+  marketRequests: number;
+}> {
+  if (!targets.length) return { lookups: [], fixturePages: 0, marketRequests: 0 };
+  const now = Math.floor(Date.now() / 1000);
+  const horizon = now + 24 * 60 * 60;
+  const fixtures: FiveDollarFixture[] = [];
+  let fixturePages = 0;
+  let page = 1;
+  while (page <= 4) {
+    const response = await apiGet<FiveDollarFixture[]>(
+      '/fixtures?start_time=' + now + '&end_time=' + horizon + '&status=scheduled&page=' + page + '&per_page=100'
+    );
+    fixturePages += 1;
+    const batch = Array.isArray(response.data) ? response.data : [];
+    fixtures.push(...batch);
+    if (!response.pagination?.has_more || batch.length === 0) break;
+    page += 1;
+  }
+  const unique = [...new Map(fixtures.filter(f => f.id != null)
+    .map(f => [String(f.id), f])).values()];
+  const lookups: FtAhLookupResult[] = [];
+  let marketRequests = 0;
+  for (const target of targets) {
+    const options = unique.filter(f => {
+      const league = LEAGUE_BY_ID.get(Number(f.league?.id));
+      if (!league) return false;
+      return sameAhFixture(target, {
+        league,
+        home: String(f.teams?.home?.name ?? ''),
+        away: String(f.teams?.away?.name ?? ''),
+        kickoff: f.kickoff_utc ?? null,
+      });
+    });
+    if (options.length !== 1) {
+      lookups.push({ id: target.id, status: options.length ? 'AMBIGUOUS_FIXTURE' : 'NO_FIXTURE' });
+      continue;
+    }
+    const fixtureId = Number(options[0].id);
+    if (!Number.isSafeInteger(fixtureId) || fixtureId <= 0) {
+      lookups.push({ id: target.id, status: 'NO_FIXTURE' });
+      continue;
+    }
+    marketRequests++;
+    try {
+      const response = await apiGet<FullOddsResponse>(
+        '/fixtures/' + fixtureId + '/odds?market=asian'
+      );
+      const data = response.data;
+      if (!data || (data.fixture_id != null && Number(data.fixture_id) !== fixtureId)) {
+        lookups.push({ id: target.id, status: 'NO_MARKET' });
+        continue;
+      }
+      const quote = parseDedicatedBet365Ah(data);
+      if (!quote) {
+        lookups.push({ id: target.id, status: 'NO_MARKET' });
+        continue;
+      }
+      const priced = quote.homeOdd != null && quote.awayOdd != null;
+      lookups.push({
+        id: target.id,
+        status: priced ? 'FOUND_PRICED' : 'FOUND_LINE',
+        line: quote.homeLine,
+        homeOdd: quote.homeOdd,
+        awayOdd: quote.awayOdd,
+        source: quote.source,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown provider error';
+      lookups.push({
+        id: target.id, status: 'PROVIDER_ERROR',
+        error: message.includes('insufficient_plan') ? 'Provider plan does not include market' : message.slice(0, 180),
+      });
+    }
+  }
+  return { lookups, fixturePages, marketRequests };
 }
 
 export async function getFiveDollarAhLinesOnly(): Promise<FiveDollarAhLine[]> {
