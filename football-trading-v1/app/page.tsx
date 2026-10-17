@@ -5,6 +5,7 @@ import MatchCard from '../components/MatchCard';
 import { evaluateV1 } from '../lib/rules';
 import { League, MethodOverallStats, MethodStats, TradingMatch } from '../lib/types';
 import { mergeWatchlistOdds, sanitizeOddsSnapshot } from '../lib/watchlistOdds';
+import { isFtAhPriorityLeague, ftAhPriorityRank } from '../lib/ftAhPriority';
 import { buildH2Predictions, methodMatchStatus } from '../lib/outcomes';
 import { deriveH2Execution } from '../lib/h2Execution';
 
@@ -366,14 +367,16 @@ export default function Home() {
       matches.filter(m => m.status === 'PRE' && !isWatchExpired(m))
     );
     const pending = pool.filter(m =>
-      m.status === 'PRE' && !m.handicapVerified && !m.handicapLineVerified &&
+      isFtAhPriorityLeague(m.league) && m.status === 'PRE' && !m.handicapVerified &&
       m.kickoff && Date.parse(m.kickoff) > Date.now()
     ).sort((a, b) =>
+      ftAhPriorityRank(a.league) - ftAhPriorityRank(b.league) ||
       (Date.parse(a.handicapLookupCheckedAt ?? '') || 0) -
-      (Date.parse(b.handicapLookupCheckedAt ?? '') || 0)
+      (Date.parse(b.handicapLookupCheckedAt ?? '') || 0) ||
+      Date.parse(a.kickoff ?? '') - Date.parse(b.kickoff ?? '')
     ).slice(0, 4);
     if (!pending.length) {
-      setNotice('No upcoming saved fixtures with missing FT AH. No API requests made.');
+      setNotice('No missing FT AH in Brazil Serie A, Allsvenskan, Liga MX or MLS. No API requests made.');
       return;
     }
     setAhLoading(true);
@@ -399,7 +402,7 @@ export default function Home() {
       const checkedAt = new Date().toISOString();
       const update = (m: TradingMatch): TradingMatch => {
         const q = byId.get(m.id);
-        if (!q || m.status !== 'PRE' || m.handicapVerified || m.handicapLineVerified) return m;
+        if (!q || m.status !== 'PRE' || m.handicapVerified) return m;
         const recorded = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status };
         if (q.line == null || !Number.isFinite(q.line) ||
             !Number.isInteger(q.line * 4) || Math.abs(q.line) > 5) return recorded;
@@ -814,7 +817,7 @@ export default function Home() {
 
       {view !== 'HISTORY' && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, margin: '8px 0 12px' }}>
-          <small style={{ opacity: 0.72 }}>FT AH only · up to 4 matches · may use API quota</small>
+          <small style={{ opacity: 0.72 }}>Brazil · Sweden · Liga MX · MLS · FT AH only (API-Football)</small>
           <button className="quickAction" onClick={recoverAhOnly} disabled={ahLoading || loading}>
             {ahLoading ? 'Recovering AH…' : 'Recover FT AH'}
           </button>
