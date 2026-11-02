@@ -87,6 +87,8 @@ export interface TradingMatch {
   handicapLineSource?: string | null;
   handicapLookupCheckedAt?: string | null;
   handicapLookupStatus?: string | null;
+  handicapLookupDetail?: string | null;
+  handicapCandidates?: Array<{line:number;homeOdd:number;awayOdd:number}>;
   handicapHomeOdd?: number | null;
   handicapAwayOdd?: number | null;
   favouriteCoveringHandicap: boolean;
