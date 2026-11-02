@@ -64,6 +64,26 @@ function pricePair(values: any[]) {
   // Without explicit main markers, we only trust an unambiguous ONE-pair market.
   return candidates.length === 1 ? candidates[0] : null;
 }
+// Return only short, non-sensitive market diagnostics; never expose API keys or full feeds.
+function diagnoseBet365Ah(rows: any[]): string {
+  const descriptions: string[] = [];
+  for (const item of rows) for (const book of item?.bookmakers ?? []) {
+    if (!/^bet365$/i.test(String(book?.name ?? '').trim())) continue;
+    for (const bet of book?.bets ?? []) {
+      if (!/asian handicap/i.test(String(bet?.name ?? ''))) continue;
+      const name=String(bet.name ?? '').slice(0,55);
+      const values=Array.isArray(bet.values) ? bet.values : [];
+      const samples=values.slice(0,16).map((v:any) =>
+        String(v?.value ?? '?').slice(0,24) + (v?.handicap == null ? '' : ' ['+String(v.handicap).slice(0,16)+']') +
+        '@'+String(v?.odd ?? '?').slice(0,8) + (v?.main === true ? '*' : '')
+      );
+      descriptions.push(name+': '+(samples.join(', ') || '(empty)'));
+    }
+  }
+  return descriptions.length ? descriptions.slice(0,3).join(' | ').slice(0,750) :
+    'No Bet365 Asian Handicap market in returned API-Football odds';
+}
+
 function mainFtAhBookmakers(rows: any[]) {
   const candidates: Array<{
     bookmaker: string; rank:number; homeLine:number; homeOdd:number; awayOdd:number;
@@ -150,7 +170,7 @@ export async function getApiFootballDedicatedFtAh(
       const {quote,ambiguous}=mainFtAhBookmakers(all);
       if (!quote) {
         lookups.push({ id:target.id,status:ambiguous?'AMBIGUOUS_MARKET':'NO_MARKET',
-          error:ambiguous?'Bet365 returned multiple or implausible AH lines; main spread is not verified':'API-Football did not expose a verifiable Bet365 FT main Asian Spread' });
+          error:(ambiguous?'Main Asian Spread cannot be identified: ':'Market missing: ')+diagnoseBet365Ah(all) });
         continue;
       }
       lookups.push({ id:target.id,status:'FOUND_PRICED',
