@@ -129,14 +129,12 @@ export async function getApiFootballDedicatedFtAh(
       const bet365=(bookmakerList.response??[]).find((b:any)=>
         /^bet365$/i.test(String(b?.name??'').trim()));
       const all:any[]=[];
-      let bet365Quote:ReturnType<typeof mainFtAhBookmakers>['quote']=null;
       if (Number.isSafeInteger(Number(bet365?.id)) && Number(bet365.id)>0) {
         const directOdds=await get('/odds?fixture='+fid+'&bookmaker='+Number(bet365.id));
         marketRequests++;
         all.push(...(directOdds.response??[]));
-        bet365Quote=mainFtAhBookmakers(all).quote;
       }
-      if (!bet365Quote) {
+      if (!mainFtAhBookmakers(all).quote) {
         const first=await get('/odds?fixture='+fid+'&page=1');
         marketRequests++;
         all.push(...(first.response??[]));
