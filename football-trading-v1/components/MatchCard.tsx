@@ -34,16 +34,22 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   const totalCorners = match.cornersHome + match.cornersAway;
   const [expanded, setExpanded] = useState(false);
   const favouriteName = match.favourite === 'AWAY' ? match.away : match.home;
-  const pricedHandicap = match.handicapVerified === true &&
-    match.handicapHomeOdd != null && match.handicapAwayOdd != null;
-  const homeHandicap = match.handicapVerified === true
-    ? (match.favourite === 'HOME' ? match.handicap : -match.handicap)
-    : match.handicapLineVerified === true ? match.prematchHandicapLine ?? null : null;
+  // Only display an authenticated Bet365 FT main Asian Handicap quote.
+  // Older 1xBet/alternative recovery results are not comparable with Bet365 Asian Spread.
+  const ahSource = match.handicapLineSource ?? '';
+  const verifiedBet365 = /bet\\s*365/i.test(ahSource) &&
+    match.handicapLineVerified === true;
+  const pricedHandicap = verifiedBet365 && match.handicapVerified === true &&
+    match.handicapHomeOdd != null && match.handicapAwayOdd != null &&
+    match.handicapHomeOdd >= 1.65 && match.handicapHomeOdd <= 2.40 &&
+    match.handicapAwayOdd >= 1.65 && match.handicapAwayOdd <= 2.40;
+  const homeHandicap = verifiedBet365 ? match.prematchHandicapLine ?? null : null;
+  const showSign = (line: number) => (line > 0 ? '+' : '') + line.toFixed(2).replace(/\\.00$/, '').replace(/(\\.\\d)0$/, '$1');
   const handicapText = homeHandicap == null
-    ? 'FT AH MISSING' + (match.handicapLookupStatus ? ' · ' + match.handicapLookupStatus.replace(/_/g, ' ') + ' (API-Football)' : '') :
-    `H ${homeHandicap > 0 ? '+' : ''}${homeHandicap} · A ${-homeHandicap > 0 ? '+' : ''}${-homeHandicap}` +
-    (pricedHandicap ? ` · H @ ${hkOdd(match.handicapHomeOdd)} · A @ ${hkOdd(match.handicapAwayOdd)}` :
-      ' · LINE ONLY · HOME/AWAY PRICES MISSING');
+    ? 'Bet365 FT Asian Spread: NOT VERIFIED' +
+      (match.handicapLookupStatus ? ' · ' + match.handicapLookupStatus.replace(/_/g, ' ') : '') :
+    `${match.home} ${showSign(homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapHomeOdd!.toFixed(3) : ''} / ${match.away} ${showSign(-homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapAwayOdd!.toFixed(3) : ''}` +
+    (pricedHandicap ? ' · Bet365 · decimal odds' : ' · line only; prices not verified');
 
   const cleanSource = (match.sourceSummary ?? '').replace(/\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan required/gi, '').trim();
   const legacySource = /SAFEv[0-8]\b/.test(cleanSource);
@@ -279,7 +285,7 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div><span>Corners</span><b>{unverifiedHt ? 'UNVERIFIED' : `${match.cornersHome}-${match.cornersAway} (${totalCorners})`}</b></div>
             <div><span>Pre corner</span><b>{totalPrice(match.prematchCornerLine, match.prematchCornerOverOdd, match.prematchCornerUnderOdd)}</b></div>
             <div><span>Pre goals</span><b>{totalPrice(match.prematchGoalLine, match.prematchGoalOverOdd, match.prematchGoalUnderOdd)}</b></div>
-            <div><span>2-way handicap</span><b>{handicapText}</b></div>
+            <div><span>FT Asian Spread (Bet365)</span><b>{handicapText}</b></div>
           </div>
 
           {cleanSource && (
