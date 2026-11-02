@@ -290,8 +290,9 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {cleanSource && (
             <div className="sourceBox">
-              <span>Pre-match odds source (not HT)</span>
-              <b>{cleanSource}{legacySource ? ' · SAVED LEGACY SNAPSHOT (not reverified)' : ''}</b>
+              <span>Pre-match market sources (not HT)</span>
+              <b>Goals/Corners: {cleanSource.includes('Bet365') ? 'API-Football · Bet365 preferred' : 'API-Football · see source details'} · FT Asian Spread: {pricedHandicap ? ahSource : 'Bet365 quote not verified; ignore any legacy 1xBet AH'}</b>
+              {legacySource && <span>Saved legacy snapshot; not reverified</span>}
               {(match.sourceUrls ?? []).slice(0, 2).map((url, i) => (
                 <a key={url + i} href={url} target="_blank" rel="noreferrer">Open source {i + 1}</a>
               ))}
