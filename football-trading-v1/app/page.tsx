@@ -367,7 +367,7 @@ export default function Home() {
       matches.filter(m => m.status === 'PRE' && !isWatchExpired(m))
     );
     const pending = pool.filter(m =>
-      isFtAhPriorityLeague(m.league) && m.status === 'PRE' && !m.handicapVerified &&
+      isFtAhPriorityLeague(m.league) && m.status === 'PRE' &&\n      (!m.handicapVerified || !/bet\\s*365/i.test(m.handicapLineSource ?? '') ||\n        (m.handicapHomeOdd ?? 0) < 1.65 || (m.handicapAwayOdd ?? 0) < 1.65) &&
       m.kickoff && Date.parse(m.kickoff) > Date.now()
     ).sort((a, b) =>
       ftAhPriorityRank(a.league) - ftAhPriorityRank(b.league) ||
@@ -402,14 +402,14 @@ export default function Home() {
       const checkedAt = new Date().toISOString();
       const update = (m: TradingMatch): TradingMatch => {
         const q = byId.get(m.id);
-        if (!q || m.status !== 'PRE' || m.handicapVerified) return m;
-        const recorded = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status };
+        if (!q || m.status !== 'PRE' || (m.handicapVerified &&\n          /bet\\s*365/i.test(m.handicapLineSource ?? '') &&\n          (m.handicapHomeOdd ?? 0) >= 1.65 && (m.handicapAwayOdd ?? 0) >= 1.65)) return m;
+        const recorded: TradingMatch = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status,\n          handicapVerified: false, handicapLineVerified: false, prematchHandicapLine: null,\n          handicapLineSource: null, handicapHomeOdd: null, handicapAwayOdd: null };
         if (q.line == null || !Number.isFinite(q.line) ||
             !Number.isInteger(q.line * 4) || Math.abs(q.line) > 5) return recorded;
         const priced = q.status === 'FOUND_PRICED' &&
           q.homeOdd != null && q.awayOdd != null &&
           Number.isFinite(q.homeOdd) && Number.isFinite(q.awayOdd) &&
-          q.homeOdd > 1 && q.awayOdd > 1;
+          q.homeOdd >= 1.65 && q.homeOdd <= 2.40 &&\n          q.awayOdd >= 1.65 && q.awayOdd <= 2.40 && /bet\\s*365/i.test(q.source ?? '');
         const updated: TradingMatch = {
           ...recorded,
           prematchHandicapLine: q.line,
