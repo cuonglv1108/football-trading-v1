@@ -401,6 +401,7 @@ export default function Home() {
         id: string; status: string; line?: number; homeOdd?: number | null;
         awayOdd?: number | null; source?: string; error?: string;
         candidates?: Array<{line:number;homeOdd:number;awayOdd:number}>;
+        totalCandidates?: number; snapshotAt?: string | null;
       }>((data.lookups ?? []).map((row: any) => [String(row.id), row]));
       const checkedAt = new Date().toISOString();
       const update = (m: TradingMatch): TradingMatch => {
@@ -411,6 +412,8 @@ export default function Home() {
         const recorded: TradingMatch = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status,
           handicapLookupDetail: q.error ?? null,
           handicapCandidates: q.candidates ?? [],
+          handicapCandidateTotal: q.totalCandidates ?? 0,
+          handicapSnapshotAt: q.snapshotAt ?? null,
           handicapVerified: false, handicapLineVerified: false, prematchHandicapLine: null,
           handicapLineSource: null, handicapHomeOdd: null, handicapAwayOdd: null };
         if (q.line == null || !Number.isFinite(q.line) ||
@@ -444,21 +447,13 @@ export default function Home() {
         localStorage.setItem(STAR_KEY, JSON.stringify(next));
         return next;
       });
-      const statuses = (data.lookups ?? []) as Array<{status: string}>;
-      const reasons = ['NO_FIXTURE', 'AMBIGUOUS_FIXTURE', 'AMBIGUOUS_MARKET', 'NO_MARKET', 'PROVIDER_ERROR']
-        .map(key => {
-          const count = statuses.filter(m => m.status === key).length;
-          return count ? key.replace(/_/g, ' ') + ': ' + count : '';
-        }).filter(Boolean).join(' · ');
-      const diagnostics = ((data.lookups ?? []) as Array<{status:string; error?:string}>)
-        .filter(row => row.status === 'AMBIGUOUS_MARKET' || row.status === 'NO_MARKET')
-        .map(row => row.error ?? row.status)
-        .slice(0, 2).join(' | ');
-      setNotice((data.message ?? 'AH-only lookup completed') +
-        (reasons ? ' · ' + reasons : '') +
-        (diagnostics ? ' · Bet365 raw market: ' + diagnostics : '') +
-        ' · ' + (data.fixturePages ?? 0) + ' fixture list page(s); ' +
-        (data.marketRequests ?? 0) + ' AH market request(s).');
+      const ambiguous = ((data.lookups ?? []) as Array<{status:string}>)
+        .filter(row => row.status === 'AMBIGUOUS_MARKET').length;
+      const verified = ((data.lookups ?? []) as Array<{status:string}>)
+        .filter(row => row.status === 'FOUND_PRICED').length;
+      setNotice('FT Asian Spread: ' + verified + ' priced · ' + ambiguous +
+        ' main line not identified. Open match details for up to 5 FT candidates. ' +
+        'Goals/Corners unchanged.');
     } catch {
       setNotice('FT AH lookup failed; existing Goals/Corners were not altered.');
     } finally {
