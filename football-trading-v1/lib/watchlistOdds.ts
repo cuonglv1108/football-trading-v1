@@ -67,7 +67,7 @@ function refreshPreMatchOdds(previous: TradingMatch, fresh: TradingMatch): Tradi
     return previous;
   }
   const keepRecovered = previous.handicapLineVerified === true &&
-    (/dedicated FT Asian Handicap|verified FT Asian Handicap 2-way/.test(previous.handicapLineSource ?? '')) &&
+    (/dedicated FT Asian Handicap|verified FT Asian Handicap 2-way|one FT Asian Handicap pair/.test(previous.handicapLineSource ?? '')) &&
     !fresh.handicapVerified && !fresh.handicapLineVerified;
   const ah = keepRecovered ? previous : fresh;
   return {
