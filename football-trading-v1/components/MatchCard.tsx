@@ -44,12 +44,13 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
     match.handicapHomeOdd >= 1.65 && match.handicapHomeOdd <= 2.40 &&
     match.handicapAwayOdd >= 1.65 && match.handicapAwayOdd <= 2.40;
   const homeHandicap = verifiedBet365 ? match.prematchHandicapLine ?? null : null;
-  const showSign = (line: number) => (line > 0 ? '+' : '') + line.toFixed(2).replace(/\.00$/, '').replace(/(\.\\d)0$/, '$1');
+  const showSign = (line: number) => (line > 0 ? '+' : '') + line.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
   const handicapText = homeHandicap == null
-    ? 'Bet365 FT Asian Spread: NOT VERIFIED' +
-      (match.handicapLookupStatus ? ' · ' + match.handicapLookupStatus.replace(/_/g, ' ') : '') :
-    `${match.home} ${showSign(homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapHomeOdd!.toFixed(3) : ''} / ${match.away} ${showSign(-homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapAwayOdd!.toFixed(3) : ''}` +
-    (pricedHandicap ? ' · Bet365 · decimal odds' : ' · line only; prices not verified');
+    ? (match.handicapLookupStatus === 'AMBIGUOUS_MARKET'
+        ? 'MAIN LINE NOT VERIFIED · see FT alternatives below'
+        : 'MAIN LINE NOT VERIFIED')
+    : `${match.home} ${showSign(homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapHomeOdd!.toFixed(3) : ''} / ${match.away} ${showSign(-homeHandicap)}${pricedHandicap ? ' @ ' + match.handicapAwayOdd!.toFixed(3) : ''}` +
+      (pricedHandicap ? ' · decimal odds' : ' · line only');
 
   const cleanSource = (match.sourceSummary ?? '').replace(/\s*·\s*HANDICAP INVALIDATED\s*—\s*SAFEv\d+\s+rescan required/gi, '').trim();
   const legacySource = /SAFEv[0-8]\b/.test(cleanSource);
@@ -290,13 +291,18 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
 
           {match.handicapLookupStatus === 'AMBIGUOUS_MARKET' && (
             <div className="sourceBox">
-              <span>Bet365 Asian Spread — candidates only (MAIN NOT VERIFIED)</span>
-              <b>{(match.handicapCandidates?.length ?? 0) > 0
-                ? match.handicapCandidates!.map(q =>
-                    `${match.home} ${q.line > 0 ? '+' : ''}${q.line} @ ${q.homeOdd.toFixed(3)} / ${match.away} ${-q.line > 0 ? '+' : ''}${-q.line} @ ${q.awayOdd.toFixed(3)}`
-                  ).join(' | ')
-                : 'Provider did not return a uniquely identifiable main spread.'}</b>
-              <span>Candidate quotes are not used for automatic trading checks.</span>
+              <span>Bet365 FT Asian Handicap · API candidate lines</span>
+              <b>{match.handicapCandidateTotal ?? match.handicapCandidates?.length ?? 0} lines available · main line not identified</b>
+              {(match.handicapCandidates ?? []).slice(0, 5).map((q, i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'7px 0',borderBottom:'1px solid #34383d'}}>
+                  <span>{match.home} {showSign(q.line)} · {match.away} {showSign(-q.line)}</span>
+                  <b style={{whiteSpace:'nowrap'}}>{q.homeOdd.toFixed(3)} / {q.awayOdd.toFixed(3)}</b>
+                </div>
+              ))}
+              {(match.handicapCandidates?.length ?? 0) === 0 &&
+                <span>No matched full-time two-way quotes found in provider data.</span>}
+              {match.handicapSnapshotAt && <span>API snapshot: {match.handicapSnapshotAt}</span>}
+              <span>Alternatives for comparison only. Not used as verified main spread.</span>
             </div>
           )}
 
