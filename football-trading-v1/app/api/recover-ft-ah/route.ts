@@ -81,13 +81,13 @@ export async function POST(request: Request) {
       return reply({ error: 'FT AH-only lookup is cooling down (1 minute). No API requests made.',
         retryAfterSeconds: Math.ceil((COOLDOWN_MS - (now - limits.lastAt)) / 1000) }, 429);
     }
-    // Conservatively reserve up to four API-Football calls per selected match:
-    // fixture verification, fixture search if needed, and at most 2 odds pages.
-    if (limits.attempts.length + unique.length * 4 > MAX_CALLS_PER_DAY) {
+    // Conservatively reserve up to six API-Football calls per selected match:
+    // fixture verification, fixture search if needed, bookmaker discovery, Bet365-filtered odds and at most 2 fallback pages.
+    if (limits.attempts.length + unique.length * 6 > MAX_CALLS_PER_DAY) {
       return reply({ error: 'FT AH-only daily provider request cap reached. No API requests made.' }, 429);
     }
     limits.lastAt = now;
-    limits.attempts.push(...Array(unique.length * 4).fill(now));
+    limits.attempts.push(...Array(unique.length * 6).fill(now));
     await saveLimits(limits);
     const result = await getApiFootballDedicatedFtAh(unique);
     const priced = result.lookups.filter(r => r.status === 'FOUND_PRICED').length;
