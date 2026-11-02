@@ -122,13 +122,29 @@ export async function getApiFootballDedicatedFtAh(
       if (!Number.isSafeInteger(fid) || fid<=0) {
         lookups.push({id:target.id,status:'NO_FIXTURE'});continue;
       }
-      const first=await get('/odds?fixture='+fid+'&page=1');
+      // Query Bet365 directly first: unfiltered fixture pages may omit this
+      // bookmaker even though its market is available through the filter.
+      const bookmakerList=await get('/odds/bookmakers?search=Bet365');
       marketRequests++;
-      const all=[...(first.response??[])];
-      if (!mainFtAhBookmakers(all).quote && Number(first.paging?.total??1)>1) {
-        const next=await get('/odds?fixture='+fid+'&page=2');
+      const bet365=(bookmakerList.response??[]).find((b:any)=>
+        /^bet365$/i.test(String(b?.name??'').trim()));
+      const all:any[]=[];
+      let bet365Quote:ReturnType<typeof mainFtAhBookmakers>['quote']=null;
+      if (Number.isSafeInteger(Number(bet365?.id)) && Number(bet365.id)>0) {
+        const directOdds=await get('/odds?fixture='+fid+'&bookmaker='+Number(bet365.id));
         marketRequests++;
-        all.push(...(next.response??[]));
+        all.push(...(directOdds.response??[]));
+        bet365Quote=mainFtAhBookmakers(all).quote;
+      }
+      if (!bet365Quote) {
+        const first=await get('/odds?fixture='+fid+'&page=1');
+        marketRequests++;
+        all.push(...(first.response??[]));
+        if (!mainFtAhBookmakers(all).quote && Number(first.paging?.total??1)>1) {
+          const next=await get('/odds?fixture='+fid+'&page=2');
+          marketRequests++;
+          all.push(...(next.response??[]));
+        }
       }
       const {quote,ambiguous}=mainFtAhBookmakers(all);
       if (!quote) {
