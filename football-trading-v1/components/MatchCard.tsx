@@ -288,6 +288,18 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
             <div><span>FT Asian Spread (Bet365)</span><b>{handicapText}</b></div>
           </div>
 
+          {match.handicapLookupStatus === 'AMBIGUOUS_MARKET' && (
+            <div className="sourceBox">
+              <span>Bet365 Asian Spread — candidates only (MAIN NOT VERIFIED)</span>
+              <b>{(match.handicapCandidates?.length ?? 0) > 0
+                ? match.handicapCandidates!.map(q =>
+                    `${match.home} ${q.line > 0 ? '+' : ''}${q.line} @ ${q.homeOdd.toFixed(3)} / ${match.away} ${-q.line > 0 ? '+' : ''}${-q.line} @ ${q.awayOdd.toFixed(3)}`
+                  ).join(' | ')
+                : 'Provider did not return a uniquely identifiable main spread.'}</b>
+              <span>Candidate quotes are not used for automatic trading checks.</span>
+            </div>
+          )}
+
           {cleanSource && (
             <div className="sourceBox">
               <span>Pre-match market sources (not HT)</span>
