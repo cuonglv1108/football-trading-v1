@@ -14,7 +14,7 @@ export function sanitizeOddsSnapshot(row: TradingMatch): TradingMatch {
   // Legacy recoveries sometimes accepted 1xBet's 0/0 alternative spread with
   // 1.04 / 6.85 decimal odds. It must not influence pre-match V1 decisions.
   const invalidPreAh = row.status === 'PRE' && row.handicapVerified === true &&
-    (!/bet\\s*365/i.test(row.handicapLineSource ?? '') ||
+    (!/bet\s*365/i.test(row.handicapLineSource ?? '') ||
       !Number.isFinite(row.handicapHomeOdd ?? NaN) || !Number.isFinite(row.handicapAwayOdd ?? NaN) ||
       (row.handicapHomeOdd ?? 0) < 1.65 || (row.handicapHomeOdd ?? 0) > 2.40 ||
       (row.handicapAwayOdd ?? 0) < 1.65 || (row.handicapAwayOdd ?? 0) > 2.40);
