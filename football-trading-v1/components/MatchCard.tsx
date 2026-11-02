@@ -37,14 +37,14 @@ export default function MatchCard({ match, starred = false, onToggleStar, onChec
   // Only display an authenticated Bet365 FT main Asian Handicap quote.
   // Older 1xBet/alternative recovery results are not comparable with Bet365 Asian Spread.
   const ahSource = match.handicapLineSource ?? '';
-  const verifiedBet365 = /bet\\s*365/i.test(ahSource) &&
+  const verifiedBet365 = /bet\s*365/i.test(ahSource) &&
     match.handicapLineVerified === true;
   const pricedHandicap = verifiedBet365 && match.handicapVerified === true &&
     match.handicapHomeOdd != null && match.handicapAwayOdd != null &&
     match.handicapHomeOdd >= 1.65 && match.handicapHomeOdd <= 2.40 &&
     match.handicapAwayOdd >= 1.65 && match.handicapAwayOdd <= 2.40;
   const homeHandicap = verifiedBet365 ? match.prematchHandicapLine ?? null : null;
-  const showSign = (line: number) => (line > 0 ? '+' : '') + line.toFixed(2).replace(/\\.00$/, '').replace(/(\\.\\d)0$/, '$1');
+  const showSign = (line: number) => (line > 0 ? '+' : '') + line.toFixed(2).replace(/\.00$/, '').replace(/(\.\\d)0$/, '$1');
   const handicapText = homeHandicap == null
     ? 'Bet365 FT Asian Spread: NOT VERIFIED' +
       (match.handicapLookupStatus ? ' · ' + match.handicapLookupStatus.replace(/_/g, ' ') : '') :
