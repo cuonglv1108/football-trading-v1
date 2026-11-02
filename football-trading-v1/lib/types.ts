@@ -89,6 +89,8 @@ export interface TradingMatch {
   handicapLookupStatus?: string | null;
   handicapLookupDetail?: string | null;
   handicapCandidates?: Array<{line:number;homeOdd:number;awayOdd:number}>;
+  handicapCandidateTotal?: number;
+  handicapSnapshotAt?: string | null;
   handicapHomeOdd?: number | null;
   handicapAwayOdd?: number | null;
   favouriteCoveringHandicap: boolean;
