@@ -399,7 +399,8 @@ export default function Home() {
       }
       const byId = new Map<string, {
         id: string; status: string; line?: number; homeOdd?: number | null;
-        awayOdd?: number | null; source?: string;
+        awayOdd?: number | null; source?: string; error?: string;
+        candidates?: Array<{line:number;homeOdd:number;awayOdd:number}>;
       }>((data.lookups ?? []).map((row: any) => [String(row.id), row]));
       const checkedAt = new Date().toISOString();
       const update = (m: TradingMatch): TradingMatch => {
@@ -408,6 +409,8 @@ export default function Home() {
           /bet\s*365/i.test(m.handicapLineSource ?? '') &&
           (m.handicapHomeOdd ?? 0) >= 1.65 && (m.handicapAwayOdd ?? 0) >= 1.65)) return m;
         const recorded: TradingMatch = { ...m, handicapLookupCheckedAt: checkedAt, handicapLookupStatus: q.status,
+          handicapLookupDetail: q.error ?? null,
+          handicapCandidates: q.candidates ?? [],
           handicapVerified: false, handicapLineVerified: false, prematchHandicapLine: null,
           handicapLineSource: null, handicapHomeOdd: null, handicapAwayOdd: null };
         if (q.line == null || !Number.isFinite(q.line) ||
