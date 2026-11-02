@@ -16,7 +16,7 @@ export type FtAhMarketResult = {
   convention: 'SHARED_HOME_LINE' | 'SIGNED_SIDES' | 'UNKNOWN';
 };
 
-const FT_MARKET = /^asian handicap(?:\\s*[-–:]?\\s*(?:full time|ft))?$/i;
+const FT_MARKET = /^asian handicap(?:\s*[-–:]?\s*(?:full time|ft))?$/i;
 function numeric(value: unknown): number | null {
   if (value == null || value === '') return null;
   const n = Number(value);
@@ -26,8 +26,8 @@ function lineOf(entry: any): number | null {
   const v = entry?.handicap;
   const raw = v != null && String(v).trim() !== ''
     ? String(v).trim()
-    : String(entry?.value ?? '').replace(/^(?:home|away)\\b/i, '').trim();
-  const nums = raw.match(/[+-]?\\d+(?:\\.\\d+)?/g)?.map(Number) ?? [];
+    : String(entry?.value ?? '').replace(/^(?:home|away)\b/i, '').trim();
+  const nums = raw.match(/[+-]?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
   let line: number | null = null;
   if (nums.length === 1) line = nums[0];
   else if (nums.length === 2 && Math.abs(nums[0] - nums[1]) === 0.5 &&
@@ -37,8 +37,8 @@ function lineOf(entry: any): number | null {
 }
 function pairedOdds(values: any[], shared: boolean): FtAhCandidate[] {
   const entries = values.map(v => ({
-    side: /^home\\b/i.test(String(v?.value ?? '')) ? 'HOME'
-      : /^away\\b/i.test(String(v?.value ?? '')) ? 'AWAY' : 'OTHER',
+    side: /^home\b/i.test(String(v?.value ?? '')) ? 'HOME'
+      : /^away\b/i.test(String(v?.value ?? '')) ? 'AWAY' : 'OTHER',
     line: lineOf(v), odd: numeric(v?.odd),
   })).filter(v => v.side !== 'OTHER' && v.line != null && v.odd != null &&
     v.odd > 1.01 && v.odd <= 20);
