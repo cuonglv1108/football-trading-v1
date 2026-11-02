@@ -11,14 +11,30 @@ export function sanitizeOddsSnapshot(row: TradingMatch): TradingMatch {
   const legacyApiFootball = cleaned.startsWith('API-Football ·') &&
     !/SAFEv(?:9|[1-9]\d+) AH verified\b/.test(cleaned) && !independentPriced;
 
-  if (!legacyApiFootball && source === cleaned) return row;
+  // Legacy recoveries sometimes accepted 1xBet's 0/0 alternative spread with
+  // 1.04 / 6.85 decimal odds. It must not influence pre-match V1 decisions.
+  const invalidPreAh = row.status === 'PRE' && row.handicapVerified === true &&
+    (!/bet\\s*365/i.test(row.handicapLineSource ?? '') ||
+      !Number.isFinite(row.handicapHomeOdd) || !Number.isFinite(row.handicapAwayOdd) ||
+      (row.handicapHomeOdd ?? 0) < 1.65 || (row.handicapHomeOdd ?? 0) > 2.40 ||
+      (row.handicapAwayOdd ?? 0) < 1.65 || (row.handicapAwayOdd ?? 0) > 2.40);
+  if (!legacyApiFootball && !invalidPreAh && source === cleaned) return row;
   return {
     ...row,
     sourceSummary: cleaned,
+    ...(invalidPreAh ? {
+      handicapVerified: false,
+      handicapLineVerified: false,
+      prematchHandicapLine: null,
+      handicapLineSource: null,
+      handicapHomeOdd: null,
+      handicapAwayOdd: null,
+      handicapLookupStatus: 'RECHECK_BET365_MAIN_SPREAD',
+    } : {}),
     // Old API-Football parser versions are not proof of a verified Asian handicap.
-    handicapVerified: legacyApiFootball ? false : row.handicapVerified,
-    favouriteCoveringHandicap: legacyApiFootball ? false : row.favouriteCoveringHandicap,
-    favouriteLosing: legacyApiFootball ? false : row.favouriteLosing,
+    handicapVerified: legacyApiFootball || invalidPreAh ? false : row.handicapVerified,
+    favouriteCoveringHandicap: legacyApiFootball || invalidPreAh ? false : row.favouriteCoveringHandicap,
+    favouriteLosing: legacyApiFootball || invalidPreAh ? false : row.favouriteLosing,
   };
 }
 
