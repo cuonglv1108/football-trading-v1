@@ -34,10 +34,13 @@ const toNumber = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 function lineIn(value: any): number | null {
-  if (value?.handicap != null) return toNumber(value.handicap);
-  const str = String(value?.value ?? '').trim();
-  const n = str.match(/[+-]?\d+(?:\.\d+)?/);
-  return n ? Number(n[0]) : null;
+  const raw = value?.handicap != null ? String(value.handicap).trim() :
+    String(value?.value ?? '').replace(/^(?:home|away)\b/i, '').trim();
+  // Preserve quarter lines such as -1.5,-2.0 => -1.75.
+  const nums = raw.match(/[+-]?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+  if (nums.length === 2 && Math.abs(nums[0]-nums[1]) === 0.5 &&
+      Math.sign(nums[0]) === Math.sign(nums[1])) return (nums[0]+nums[1])/2;
+  return nums.length === 1 ? nums[0] : null;
 }
 function pricePair(values: any[]) {
   const usable = values.map((v: any) => ({
@@ -45,7 +48,7 @@ function pricePair(values: any[]) {
       /^away\b/i.test(String(v?.value ?? '')) ? 'AWAY' : 'OTHER',
     line: lineIn(v), odd: toNumber(v?.odd), main: v?.main === true,
   })).filter(x => x.side !== 'OTHER' && x.line != null && x.odd != null &&
-      x.odd > 1 && x.odd <= 20 && Math.abs(x.line) <= 5 &&
+      x.odd >= 1.65 && x.odd <= 2.40 && Math.abs(x.line) <= 5 &&
       Number.isInteger(x.line * 4));
   const candidates: Array<{ homeLine:number; homeOdd:number; awayOdd:number; main:boolean }> = [];
   for (const h of usable.filter(q => q.side === 'HOME')) {
@@ -68,9 +71,9 @@ function mainFtAhBookmakers(rows: any[]) {
   let ambiguous = false;
   for (const item of rows) for (const book of item?.bookmakers ?? []) {
     const name = String(book?.name ?? '');
-    const rank = /^bet365$/i.test(name) ? 0 :
-      /^stake(?:\.com)?$/i.test(name) ? 1 :
-      /pinnacle/i.test(name) ? 2 : 10;
+    // Do not substitute 1xBet/other bookmaker lines for the Bet365 main spread.
+    if (!/^bet365$/i.test(name)) continue;
+    const rank = 0;
     for (const bet of book?.bets ?? []) {
       const market = String(bet?.name ?? '').trim();
       if (!/^asian handicap(?:\s*(?:full time|ft))?$/i.test(market)) continue;
@@ -147,7 +150,7 @@ export async function getApiFootballDedicatedFtAh(
       const {quote,ambiguous}=mainFtAhBookmakers(all);
       if (!quote) {
         lookups.push({ id:target.id,status:ambiguous?'AMBIGUOUS_MARKET':'NO_MARKET',
-          error:ambiguous?'More than one FT Asian Handicap line; main line not identifiable':'Provider has no verified FT Asian Handicap main market' });
+          error:ambiguous?'Bet365 returned multiple or implausible AH lines; main spread is not verified':'API-Football did not expose a verifiable Bet365 FT main Asian Spread' });
         continue;
       }
       lookups.push({ id:target.id,status:'FOUND_PRICED',
