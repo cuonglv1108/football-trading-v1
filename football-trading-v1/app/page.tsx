@@ -447,8 +447,13 @@ export default function Home() {
           const count = statuses.filter(m => m.status === key).length;
           return count ? key.replace(/_/g, ' ') + ': ' + count : '';
         }).filter(Boolean).join(' · ');
+      const diagnostics = ((data.lookups ?? []) as Array<{status:string; error?:string}>)
+        .filter(row => row.status === 'AMBIGUOUS_MARKET' || row.status === 'NO_MARKET')
+        .map(row => row.error ?? row.status)
+        .slice(0, 2).join(' | ');
       setNotice((data.message ?? 'AH-only lookup completed') +
         (reasons ? ' · ' + reasons : '') +
+        (diagnostics ? ' · Bet365 raw market: ' + diagnostics : '') +
         ' · ' + (data.fixturePages ?? 0) + ' fixture list page(s); ' +
         (data.marketRequests ?? 0) + ' AH market request(s).');
     } catch {
