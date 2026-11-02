@@ -91,16 +91,18 @@ export async function POST(request: Request) {
     await saveLimits(limits);
     const result = await getApiFootballDedicatedFtAh(unique);
     const priced = result.lookups.filter(r => r.status === 'FOUND_PRICED').length;
-    const lineOnly = result.lookups.filter(r => r.status === 'FOUND_LINE').length;
+    const ambiguous = result.lookups.filter(r => r.status === 'AMBIGUOUS_MARKET').length;
+    const missing = result.lookups.length - priced - ambiguous;
     return reply({
       status: 'DONE',
       attempted: unique.length,
       ...result,
       priced,
-      lineOnly,
-      message: 'FT AH-only check: ' + priced + ' two-way priced, ' + lineOnly +
-        ' line-only, ' + (unique.length - priced - lineOnly) +
-        ' missing/unsupported. API-Football used for Brazil Serie A, Allsvenskan, Liga MX, MLS. Existing Goal/Corner odds unchanged.',
+      ambiguous,
+      missing,
+      message: 'FT Asian Spread: ' + priced + ' priced, ' + ambiguous +
+        ' multiple/unmatched Bet365 lines, ' + missing +
+        ' unavailable. Main line is not guessed. Goals/Corners unchanged.',
     });
   } catch (error) {
     return reply({
