@@ -8,7 +8,7 @@ const IDS: Partial<Record<League, number>> = {
   'Brazil Serie A': 71, Allsvenskan: 113, 'Liga MX': 262, MLS: 253,
 };
 
-type LookupResult = FtAhLookupResult & { bookmaker?: string };
+type LookupResult = FtAhLookupResult & { bookmaker?: string; candidates?: Array<{line:number;homeOdd:number;awayOdd:number}> };
 type ProviderResponse = {
   response?: any[];
   paging?: { total?: number };
@@ -58,13 +58,36 @@ function pricePair(values: any[]) {
         main: h.main && a.main });
     }
   }
+  // API-Sports 'main' can mark duplicate prices for ONE selection, not
+  // necessarily both HOME and AWAY. Prefer the uniquely marked pair; never
+  // infer the main spread from odds balance when several lines remain.
   const marked = candidates.filter(x => x.main);
   if (marked.length === 1) return marked[0];
-  if (marked.length > 1) return null;
-  // Without explicit main markers, we only trust an unambiguous ONE-pair market.
   return candidates.length === 1 ? candidates[0] : null;
 }
 // Return only short, non-sensitive market diagnostics; never expose API keys or full feeds.
+function candidateLines(rows: any[]): Array<{line:number; homeOdd:number; awayOdd:number}> {
+  const found = new Map<string,{line:number;homeOdd:number;awayOdd:number}>();
+  for (const item of rows) for (const book of item?.bookmakers ?? []) {
+    if (!/^bet365$/i.test(String(book?.name ?? '').trim())) continue;
+    for (const bet of book?.bets ?? []) {
+      if (!/^asian handicap(?:\\s*(?:full time|ft))?$/i.test(String(bet?.name ?? '').trim())) continue;
+      const values=Array.isArray(bet?.values)?bet.values:[];
+      const home=values.filter((v:any)=>/^home\\b/i.test(String(v?.value ?? '')));
+      const away=values.filter((v:any)=>/^away\\b/i.test(String(v?.value ?? '')));
+      for (const h of home) for (const a of away) {
+        const hl=lineIn(h),al=lineIn(a),ho=toNumber(h.odd),ao=toNumber(a.odd);
+        if (hl==null || al==null || ho==null || ao==null) continue;
+        if (Math.abs(hl+al)>0.001 || !Number.isInteger(hl*4) ||
+            Math.abs(hl)>5 || ho<=1 || ao<=1 || ho>20 || ao>20) continue;
+        found.set([hl,ho,ao].join(':'),{line:hl,homeOdd:ho,awayOdd:ao});
+      }
+    }
+  }
+  return [...found.values()].sort((a,b)=>
+    Math.abs(a.homeOdd-a.awayOdd)-Math.abs(b.homeOdd-b.awayOdd)).slice(0,12);
+}
+
 function diagnoseBet365Ah(rows: any[]): string {
   const descriptions: string[] = [];
   for (const item of rows) for (const book of item?.bookmakers ?? []) {
@@ -170,7 +193,8 @@ export async function getApiFootballDedicatedFtAh(
       const {quote,ambiguous}=mainFtAhBookmakers(all);
       if (!quote) {
         lookups.push({ id:target.id,status:ambiguous?'AMBIGUOUS_MARKET':'NO_MARKET',
-          error:(ambiguous?'Main Asian Spread cannot be identified: ':'Market missing: ')+diagnoseBet365Ah(all) });
+          error:(ambiguous?'Main Asian Spread cannot be identified: ':'Market missing: ')+diagnoseBet365Ah(all),
+          candidates:candidateLines(all) });
         continue;
       }
       lookups.push({ id:target.id,status:'FOUND_PRICED',
