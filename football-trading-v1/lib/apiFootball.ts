@@ -1,6 +1,7 @@
 import { League, TradingMatch } from './types';
 import { evaluateV1 } from './rules';
 import { isFtAhPriorityLeague } from './ftAhPriority';
+import { parseApiFootballBet365FtAh } from './ftAsianMarkets';
 
 const BASE_URL = 'https://v3.football.api-sports.io';
 
@@ -223,13 +224,23 @@ function parseHandicap(
 }
 
 function parseBookmakerHandicapOnly(bookmaker: any) {
-  if (!Array.isArray(bookmaker?.bets)) return null;
-  const bets = bookmaker.bets;
-  const favourite = moneylineFavourite(bets);
-  return bets.filter((bet: any) =>
-    /asian handicap/i.test(String(bet?.name ?? '')) &&
-    !/half|1st|2nd|alternative|extra time|corners|cards/i.test(String(bet?.name ?? ''))
-  ).map((bet: any) => parseHandicap(bet?.values, favourite)).find(Boolean) ?? null;
+  // A non-Bet365 market must never overwrite the requested Bet365 Asian Spread.
+  if (!/^bet365$/i.test(String(bookmaker?.name ?? '').trim())) return null;
+  const market = parseApiFootballBet365FtAh([{bookmakers:[bookmaker]}]);
+  // API-Football offers alternative lines but does not identify their main line.
+  if (market.totalLines !== 1) return null;
+  const quote = market.candidates[0];
+  if (!quote || quote.homeOdd < 1.65 || quote.homeOdd > 2.40 ||
+      quote.awayOdd < 1.65 || quote.awayOdd > 2.40) return null;
+  const favourite = quote.line === 0
+    ? (moneylineFavourite(bookmaker.bets ?? []) ?? 'HOME')
+    : quote.line < 0 ? 'HOME' as const : 'AWAY' as const;
+  return {
+    favourite,
+    handicap: -Math.abs(quote.line),
+    homeOdd: quote.homeOdd,
+    awayOdd: quote.awayOdd,
+  };
 }
 
 function parseBookmakerOdds(bookmaker: any) {
